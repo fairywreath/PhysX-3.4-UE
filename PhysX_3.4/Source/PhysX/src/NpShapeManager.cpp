@@ -103,32 +103,26 @@ void NpShapeManager::attachShape(NpShape& shape, PxRigidActor& actor)
 	shape.onActorAttach(actor);
 }
 				 
-void NpShapeManager::detachShape(NpShape& s, PxRigidActor& actor, bool wakeOnLostTouch)
+bool NpShapeManager::detachShape(NpShape& s, PxRigidActor& actor, bool wakeOnLostTouch)
 {
 	PX_ASSERT(!mPruningStructure);
 
-	PtrTableStorageManager& sm = NpFactory::getInstance().getPtrTableStorageManager();
-
 	const PxU32 index = mShapes.find(&s);
-	PX_ASSERT(index!=0xffffffff);
-
-	Scb::RigidObject& ro = static_cast<Scb::RigidObject&>(NpActor::getScbFromPxActor(actor));
+	if(index==0xffffffff)
+		return false;
 
 	NpScene* scene = NpActor::getAPIScene(actor);
 	if(scene && isSceneQuery(s))
 		scene->getSceneQueryManagerFast().removePrunerShape(getPrunerData(index));
 
-	Scb::Shape& scbShape = s.getScbShape();
-	ro.onShapeDetach(scbShape, wakeOnLostTouch, (s.getRefCount() == 1));
+	Scb::RigidObject& ro = static_cast<Scb::RigidObject&>(NpActor::getScbFromPxActor(actor));
+	ro.onShapeDetach(s.getScbShape(), wakeOnLostTouch, (s.getRefCount() == 1));
+	PtrTableStorageManager& sm = NpFactory::getInstance().getPtrTableStorageManager();
 	mShapes.replaceWithLast(index, sm);
 	mSceneQueryData.replaceWithLast(index, sm);
 	
 	s.onActorDetach();
-}
-
-bool NpShapeManager::shapeIsAttached(NpShape& s) const
-{
-	return mShapes.find(&s)!=0xffffffff;
+	return true;
 }
 
 void NpShapeManager::detachAll(NpScene* scene)

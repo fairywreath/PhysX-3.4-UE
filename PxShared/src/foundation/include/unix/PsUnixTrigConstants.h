@@ -30,8 +30,8 @@
 #ifndef PSFOUNDATION_PSUNIXTRIGCONSTANTS_H
 #define PSFOUNDATION_PSUNIXTRIGCONSTANTS_H
 
-//#define PX_GLOBALCONST extern const __declspec(selectany)
 #define PX_GLOBALCONST extern const __attribute__((weak))
+
 
 PX_ALIGN_PREFIX(16)
 struct PX_VECTORF32

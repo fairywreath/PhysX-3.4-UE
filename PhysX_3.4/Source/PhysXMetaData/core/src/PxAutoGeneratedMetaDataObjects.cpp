@@ -34,10 +34,9 @@
 // The source code for the generate was at one time checked into:
 // physx/PhysXMetaDataGenerator/llvm/tools/clang/lib/Frontend/PhysXMetaDataAction.cpp
 #include "PxMetaDataObjects.h"
-#include "PxPhysicsAPI.h"
 #include "PxMetaDataCppPrefix.h"
 using namespace physx;
-const PxTolerancesScale & getPxPhysics_TolerancesScale( const PxPhysics* inObj ) { return inObj->getTolerancesScale(); }
+const PxTolerancesScale getPxPhysics_TolerancesScale( const PxPhysics* inObj ) { return inObj->getTolerancesScale(); }
 PxU32 getPxPhysics_TriangleMeshes( const PxPhysics* inObj, PxTriangleMesh ** outBuffer, PxU32 inBufSize ) { return inObj->getTriangleMeshes( outBuffer, inBufSize ); }
 PxU32 getNbPxPhysics_TriangleMeshes( const PxPhysics* inObj ) { return inObj->getNbTriangleMeshes(  ); }
 PxTriangleMesh * createPxPhysics_TriangleMeshes( PxPhysics* inObj, PxInputStream & inCreateParam ){ return inObj->createTriangleMesh( inCreateParam ); }
@@ -1023,6 +1022,8 @@ PxPruningStructureType::Enum getPxScene_StaticStructure( const PxScene* inObj ) 
 PxPruningStructureType::Enum getPxScene_DynamicStructure( const PxScene* inObj ) { return inObj->getDynamicStructure(); }
 void setPxScene_DynamicTreeRebuildRateHint( PxScene* inObj, PxU32 inArg){ inObj->setDynamicTreeRebuildRateHint( inArg ); }
 PxU32 getPxScene_DynamicTreeRebuildRateHint( const PxScene* inObj ) { return inObj->getDynamicTreeRebuildRateHint(); }
+void setPxScene_SceneQueryUpdateMode( PxScene* inObj, PxSceneQueryUpdateMode::Enum inArg){ inObj->setSceneQueryUpdateMode( inArg ); }
+PxSceneQueryUpdateMode::Enum getPxScene_SceneQueryUpdateMode( const PxScene* inObj ) { return inObj->getSceneQueryUpdateMode(); }
 PxU32 getPxScene_SceneQueryStaticTimestamp( const PxScene* inObj ) { return inObj->getSceneQueryStaticTimestamp(); }
 PxBroadPhaseType::Enum getPxScene_BroadPhaseType( const PxScene* inObj ) { return inObj->getBroadPhaseType(); }
 PxU32 getPxScene_BroadPhaseRegions( const PxScene* inObj, PxBroadPhaseRegionInfo* outBuffer, PxU32 inBufSize ) { return inObj->getBroadPhaseRegions( outBuffer, inBufSize ); }
@@ -1063,6 +1064,7 @@ PX_PHYSX_CORE_API PxSceneGeneratedInfo::PxSceneGeneratedInfo()
 	, StaticStructure( "StaticStructure", getPxScene_StaticStructure)
 	, DynamicStructure( "DynamicStructure", getPxScene_DynamicStructure)
 	, DynamicTreeRebuildRateHint( "DynamicTreeRebuildRateHint", setPxScene_DynamicTreeRebuildRateHint, getPxScene_DynamicTreeRebuildRateHint)
+	, SceneQueryUpdateMode( "SceneQueryUpdateMode", setPxScene_SceneQueryUpdateMode, getPxScene_SceneQueryUpdateMode)
 	, SceneQueryStaticTimestamp( "SceneQueryStaticTimestamp", getPxScene_SceneQueryStaticTimestamp)
 	, BroadPhaseType( "BroadPhaseType", getPxScene_BroadPhaseType)
 	, BroadPhaseRegions( "BroadPhaseRegions", getPxScene_BroadPhaseRegions, getNbPxScene_BroadPhaseRegions )
@@ -1097,6 +1099,7 @@ PX_PHYSX_CORE_API PxSceneGeneratedValues::PxSceneGeneratedValues( const PxScene*
 		,StaticStructure( getPxScene_StaticStructure( inSource ) )
 		,DynamicStructure( getPxScene_DynamicStructure( inSource ) )
 		,DynamicTreeRebuildRateHint( getPxScene_DynamicTreeRebuildRateHint( inSource ) )
+		,SceneQueryUpdateMode( getPxScene_SceneQueryUpdateMode( inSource ) )
 		,SceneQueryStaticTimestamp( getPxScene_SceneQueryStaticTimestamp( inSource ) )
 		,BroadPhaseType( getPxScene_BroadPhaseType( inSource ) )
 		,TaskManager( getPxScene_TaskManager( inSource ) )
@@ -1261,6 +1264,8 @@ inline PxPruningStructureType::Enum getPxSceneDescDynamicStructure( const PxScen
 inline void setPxSceneDescDynamicStructure( PxSceneDesc* inOwner, PxPruningStructureType::Enum inData) { inOwner->dynamicStructure = inData; }
 inline PxU32 getPxSceneDescDynamicTreeRebuildRateHint( const PxSceneDesc* inOwner ) { return inOwner->dynamicTreeRebuildRateHint; }
 inline void setPxSceneDescDynamicTreeRebuildRateHint( PxSceneDesc* inOwner, PxU32 inData) { inOwner->dynamicTreeRebuildRateHint = inData; }
+inline PxSceneQueryUpdateMode::Enum getPxSceneDescSceneQueryUpdateMode( const PxSceneDesc* inOwner ) { return inOwner->sceneQueryUpdateMode; }
+inline void setPxSceneDescSceneQueryUpdateMode( PxSceneDesc* inOwner, PxSceneQueryUpdateMode::Enum inData) { inOwner->sceneQueryUpdateMode = inData; }
 inline void * getPxSceneDescUserData( const PxSceneDesc* inOwner ) { return inOwner->userData; }
 inline void setPxSceneDescUserData( PxSceneDesc* inOwner, void * inData) { inOwner->userData = inData; }
 inline PxU32 getPxSceneDescSolverBatchSize( const PxSceneDesc* inOwner ) { return inOwner->solverBatchSize; }
@@ -1269,6 +1274,8 @@ inline PxU32 getPxSceneDescNbContactDataBlocks( const PxSceneDesc* inOwner ) { r
 inline void setPxSceneDescNbContactDataBlocks( PxSceneDesc* inOwner, PxU32 inData) { inOwner->nbContactDataBlocks = inData; }
 inline PxU32 getPxSceneDescMaxNbContactDataBlocks( const PxSceneDesc* inOwner ) { return inOwner->maxNbContactDataBlocks; }
 inline void setPxSceneDescMaxNbContactDataBlocks( PxSceneDesc* inOwner, PxU32 inData) { inOwner->maxNbContactDataBlocks = inData; }
+inline PxReal getPxSceneDescMaxBiasCoefficient( const PxSceneDesc* inOwner ) { return inOwner->maxBiasCoefficient; }
+inline void setPxSceneDescMaxBiasCoefficient( PxSceneDesc* inOwner, PxReal inData) { inOwner->maxBiasCoefficient = inData; }
 inline PxU32 getPxSceneDescContactReportStreamBufferSize( const PxSceneDesc* inOwner ) { return inOwner->contactReportStreamBufferSize; }
 inline void setPxSceneDescContactReportStreamBufferSize( PxSceneDesc* inOwner, PxU32 inData) { inOwner->contactReportStreamBufferSize = inData; }
 inline PxU32 getPxSceneDescCcdMaxPasses( const PxSceneDesc* inOwner ) { return inOwner->ccdMaxPasses; }
@@ -1307,10 +1314,12 @@ PX_PHYSX_CORE_API PxSceneDescGeneratedInfo::PxSceneDescGeneratedInfo()
 	, StaticStructure( "StaticStructure", setPxSceneDescStaticStructure, getPxSceneDescStaticStructure )
 	, DynamicStructure( "DynamicStructure", setPxSceneDescDynamicStructure, getPxSceneDescDynamicStructure )
 	, DynamicTreeRebuildRateHint( "DynamicTreeRebuildRateHint", setPxSceneDescDynamicTreeRebuildRateHint, getPxSceneDescDynamicTreeRebuildRateHint )
+	, SceneQueryUpdateMode( "SceneQueryUpdateMode", setPxSceneDescSceneQueryUpdateMode, getPxSceneDescSceneQueryUpdateMode )
 	, UserData( "UserData", setPxSceneDescUserData, getPxSceneDescUserData )
 	, SolverBatchSize( "SolverBatchSize", setPxSceneDescSolverBatchSize, getPxSceneDescSolverBatchSize )
 	, NbContactDataBlocks( "NbContactDataBlocks", setPxSceneDescNbContactDataBlocks, getPxSceneDescNbContactDataBlocks )
 	, MaxNbContactDataBlocks( "MaxNbContactDataBlocks", setPxSceneDescMaxNbContactDataBlocks, getPxSceneDescMaxNbContactDataBlocks )
+	, MaxBiasCoefficient( "MaxBiasCoefficient", setPxSceneDescMaxBiasCoefficient, getPxSceneDescMaxBiasCoefficient )
 	, ContactReportStreamBufferSize( "ContactReportStreamBufferSize", setPxSceneDescContactReportStreamBufferSize, getPxSceneDescContactReportStreamBufferSize )
 	, CcdMaxPasses( "CcdMaxPasses", setPxSceneDescCcdMaxPasses, getPxSceneDescCcdMaxPasses )
 	, WakeCounterResetValue( "WakeCounterResetValue", setPxSceneDescWakeCounterResetValue, getPxSceneDescWakeCounterResetValue )
@@ -1342,10 +1351,12 @@ PX_PHYSX_CORE_API PxSceneDescGeneratedValues::PxSceneDescGeneratedValues( const 
 		,StaticStructure( inSource->staticStructure )
 		,DynamicStructure( inSource->dynamicStructure )
 		,DynamicTreeRebuildRateHint( inSource->dynamicTreeRebuildRateHint )
+		,SceneQueryUpdateMode( inSource->sceneQueryUpdateMode )
 		,UserData( inSource->userData )
 		,SolverBatchSize( inSource->solverBatchSize )
 		,NbContactDataBlocks( inSource->nbContactDataBlocks )
 		,MaxNbContactDataBlocks( inSource->maxNbContactDataBlocks )
+		,MaxBiasCoefficient( inSource->maxBiasCoefficient )
 		,ContactReportStreamBufferSize( inSource->contactReportStreamBufferSize )
 		,CcdMaxPasses( inSource->ccdMaxPasses )
 		,WakeCounterResetValue( inSource->wakeCounterResetValue )

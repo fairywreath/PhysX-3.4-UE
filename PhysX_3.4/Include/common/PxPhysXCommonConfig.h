@@ -41,7 +41,7 @@
 #if defined PX_PHYSX_STATIC_LIB || defined PX_PHYSX_CORE_STATIC_LIB
 	#define PX_PHYSX_CORE_API
 #else
-	#if PX_WINDOWS
+	#if PX_WINDOWS_FAMILY
 		#if defined PX_PHYSX_CORE_EXPORTS
 			#define PX_PHYSX_CORE_API __declspec(dllexport)
 		#else
@@ -54,7 +54,26 @@
     #endif
 #endif
 
-#if PX_WINDOWS && !defined(__CUDACC__)
+#if PX_SUPPORT_GPU_PHYSX
+
+// define API function declaration
+#if PX_WINDOWS 
+#if defined PX_PHYSX_GPU_EXPORTS
+#define PX_PHYSX_GPU_API __declspec(dllexport)
+#else
+#define PX_PHYSX_GPU_API __declspec(dllimport)
+#endif
+#elif PX_UNIX_FAMILY
+#define PX_PHYSX_GPU_API PX_UNIX_EXPORT
+#else
+#define PX_PHYSX_GPU_API
+#endif
+
+#else // PX_SUPPORT_GPU_PHYSX
+#define PX_PHYSX_GPU_API
+#endif // PX_SUPPORT_GPU_PHYSX
+
+#if PX_WINDOWS_FAMILY && !defined(__CUDACC__)
 	#if defined PX_PHYSX_COMMON_EXPORTS
 		#define PX_PHYSX_COMMON_API __declspec(dllexport)
 	#else

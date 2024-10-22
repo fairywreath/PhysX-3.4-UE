@@ -99,12 +99,17 @@ NpSceneQueries::NpSceneQueries(const PxSceneDesc& desc) :
 	mSQManager				(mScene, desc.staticStructure, desc.dynamicStructure, desc.dynamicTreeRebuildRateHint, desc.limits),
 	mCachedRaycastFuncs		(Gu::getRaycastFuncTable()),
 	mCachedSweepFuncs		(Gu::getSweepFuncTable()),
-	mCachedOverlapFuncs		(Gu::getOverlapFuncTable())
+	mCachedOverlapFuncs		(Gu::getOverlapFuncTable()),
+	mSceneQueriesStaticPrunerUpdate		(getContextId(), 0, "NpSceneQueries.sceneQueriesStaticPrunerUpdate"),
+	mSceneQueriesDynamicPrunerUpdate(getContextId(), 0, "NpSceneQueries.sceneQueriesDynamicPrunerUpdate"),
+	mSceneQueryUpdateMode	(desc.sceneQueryUpdateMode)
 #if PX_SUPPORT_PVD
 	, mSingleSqCollector	(mScene, false),
 	mBatchedSqCollector		(mScene, true)
 #endif
 {
+	mSceneQueriesStaticPrunerUpdate.setObject(this);
+	mSceneQueriesDynamicPrunerUpdate.setObject(this);
 }
 
 NpScene::NpScene(const PxSceneDesc& desc) :
@@ -122,26 +127,33 @@ NpScene::NpScene(const PxSceneDesc& desc) :
 	mSanityBounds			(desc.sanityBounds),
 	mNbClients				(1),			//we always have the default client.
 	mClientBehaviorFlags	(PX_DEBUG_EXP("sceneBehaviorFlags")),
-	mSceneCompletion		(mPhysicsDone),
-	mCollisionCompletion	(mCollisionDone),
-	mSceneExecution			(0, "NpScene.execution"),
-	mSceneCollide			(0, "NpScene.collide"),
-	mSceneAdvance			(0, "NpScene.solve"),
+	mSceneCompletion		(getContextId(), mPhysicsDone),
+	mCollisionCompletion	(getContextId(), mCollisionDone),
+	mSceneQueriesCompletion	(getContextId(), mSceneQueriesDone),
+	mSceneExecution			(getContextId(), 0, "NpScene.execution"),
+	mSceneCollide			(getContextId(), 0, "NpScene.collide"),
+	mSceneAdvance			(getContextId(), 0, "NpScene.solve"),
 	mControllingSimulation	(false),
 	mSimThreadStackSize		(0),
 	mConcurrentWriteCount	(0),
 	mConcurrentReadCount	(0),
 	mConcurrentErrorCount	(0),	
 	mCurrentWriter			(0),
+	mSceneQueriesUpdateRunning	(false),
 	mHasSimulatedOnce		(false),
 	mBetweenFetchResults	(false)
 {
+	
 	mSceneExecution.setObject(this);
 	mSceneCollide.setObject(this);
 	mSceneAdvance.setObject(this);
 
 	mTaskManager = mScene.getScScene().getTaskManagerPtr();
 	mThreadReadWriteDepth = Ps::TlsAlloc();
+
+#if PX_SUPPORT_GPU_PHYSX
+	updatePhysXIndicator();
+#endif
 
 }
 
@@ -2231,7 +2243,11 @@ void NpScene::fetchResultsPostContactCallbacks()
 	SqRefFinder sqRefFinder;
 	mScene.getScScene().syncSceneQueryBounds(mSQManager.getDynamicBoundsSync(), sqRefFinder);
 
-	mSQManager.afterSync(!(getFlagsFast()&PxSceneFlag::eSUPPRESS_EAGER_SCENE_QUERY_REFIT));
+	// A.B. temp check if eSUPPRESS_EAGER_SCENE_QUERY_REFIT was set and update mode not, then replicate the flag to the enum
+	PxSceneQueryUpdateMode::Enum updateMode = getSceneQueryUpdateModeFast();
+	if((getFlagsFast() & PxSceneFlag::eSUPPRESS_EAGER_SCENE_QUERY_REFIT) && updateMode == PxSceneQueryUpdateMode::eBUILD_ENABLED_COMMIT_ENABLED)
+		updateMode = PxSceneQueryUpdateMode::eBUILD_ENABLED_COMMIT_DISABLED;
+	mSQManager.afterSync(updateMode);
 
 #if PX_DEBUG && 0
 	mSQManager.validateSimUpdates();
@@ -2625,7 +2641,7 @@ void NpScene::removeCloth(NpCloth& cloth)
 
 void NpScene::updatePhysXIndicator()
 {
-	Ps::IntBool isGpu = 0;
+	Ps::IntBool isGpu = mScene.getScScene().isUsingGpuRigidBodies();
 
 #if PX_USE_PARTICLE_SYSTEM_API
 	PxParticleBase*const* particleBaseList = mPxParticleBaseSet.getEntries();
@@ -2666,6 +2682,18 @@ void NpScene::releaseVolumeCache(NpVolumeCache* volumeCache)
 	bool found = mVolumeCaches.erase(volumeCache); PX_UNUSED(found);
 	PX_ASSERT_WITH_MESSAGE(found, "volume cache not found in releaseVolumeCache");
 	PX_DELETE(static_cast<NpVolumeCache*>(volumeCache));
+}
+
+void NpScene::setSceneQueryUpdateMode(PxSceneQueryUpdateMode::Enum updateMode)
+{
+	NP_WRITE_CHECK(this);
+	mSceneQueryUpdateMode = updateMode;
+}
+
+PxSceneQueryUpdateMode::Enum NpScene::getSceneQueryUpdateMode() const
+{
+	NP_READ_CHECK(this);
+	return mSceneQueryUpdateMode;
 }
 
 void NpScene::setDynamicTreeRebuildRateHint(PxU32 dynamicTreeRebuildRateHint)
@@ -2827,6 +2855,17 @@ namespace
 {
 	struct ThreadReadWriteCount
 	{
+		ThreadReadWriteCount(const size_t data)
+			:	readDepth(data & 0xFF),
+				writeDepth((data >> 8) & 0xFF),
+				readLockDepth((data >> 16) & 0xFF),
+				writeLockDepth((data >> 24) & 0xFF)
+		{
+			
+		}
+
+		size_t getData() const { return size_t(writeLockDepth) << 24 |  size_t(readLockDepth) << 16 | size_t(writeDepth) << 8 | size_t(readDepth); }
+
 		PxU8 readDepth;			// depth of re-entrant reads
 		PxU8 writeDepth;		// depth of re-entrant writes 
 
@@ -2843,7 +2882,7 @@ NpScene::StartWriteResult::Enum NpScene::startWrite(bool allowReentry)
 
 	if (mScene.getFlags() & PxSceneFlag::eREQUIRE_RW_LOCK)
 	{
-		ThreadReadWriteCount localCounts = PxUnionCast<ThreadReadWriteCount>(TlsGet(mThreadReadWriteDepth));
+		ThreadReadWriteCount localCounts(TlsGetValue(mThreadReadWriteDepth));
 
 		if (mBetweenFetchResults)
 			return StartWriteResult::eIN_FETCHRESULTS;
@@ -2853,7 +2892,7 @@ NpScene::StartWriteResult::Enum NpScene::startWrite(bool allowReentry)
 	}
 	
 	{
-		ThreadReadWriteCount localCounts = PxUnionCast<ThreadReadWriteCount>(TlsGet(mThreadReadWriteDepth));
+		ThreadReadWriteCount localCounts(TlsGetValue(mThreadReadWriteDepth));
 		StartWriteResult::Enum result;
 
 		if (mBetweenFetchResults)
@@ -2874,7 +2913,7 @@ NpScene::StartWriteResult::Enum NpScene::startWrite(bool allowReentry)
 		// by 2 to force subsequent writes to fail by creating a mismatch between
 		// the concurrent write counter and the local counter, any value > 1 will do
 		localCounts.writeDepth += allowReentry ? 1 : 2;
-		TlsSet(mThreadReadWriteDepth, PxUnionCast<void*>(localCounts));
+		TlsSetValue(mThreadReadWriteDepth, localCounts.getData());
 
 		if (result != StartWriteResult::eOK)
 			Ps::atomicIncrement(&mConcurrentErrorCount);
@@ -2890,7 +2929,7 @@ void NpScene::stopWrite(bool allowReentry)
 		Ps::atomicDecrement(&mConcurrentWriteCount);
 
 		// decrement depth of writes for this thread
-		ThreadReadWriteCount localCounts = PxUnionCast<ThreadReadWriteCount>(TlsGet(mThreadReadWriteDepth));
+		ThreadReadWriteCount localCounts(TlsGetValue(mThreadReadWriteDepth));
 
 		// see comment in startWrite()
 		if (allowReentry)
@@ -2898,7 +2937,7 @@ void NpScene::stopWrite(bool allowReentry)
 		else
 			localCounts.writeDepth-=2;
 
-		TlsSet(mThreadReadWriteDepth, PxUnionCast<void*>(localCounts));
+		TlsSetValue(mThreadReadWriteDepth, localCounts.getData());
 	}
 }
 
@@ -2906,7 +2945,7 @@ bool NpScene::startRead() const
 { 
 	if (mScene.getFlags() & PxSceneFlag::eREQUIRE_RW_LOCK)
 	{
-		ThreadReadWriteCount localCounts = PxUnionCast<ThreadReadWriteCount>(TlsGet(mThreadReadWriteDepth));
+		ThreadReadWriteCount localCounts(TlsGetValue(mThreadReadWriteDepth));
 
 		// ensure we already have the write or read lock
 		return localCounts.writeLockDepth > 0 || localCounts.readLockDepth > 0;
@@ -2916,9 +2955,9 @@ bool NpScene::startRead() const
 		Ps::atomicIncrement(&mConcurrentReadCount);
 
 		// update current threads read depth
-		ThreadReadWriteCount localCounts = PxUnionCast<ThreadReadWriteCount>(TlsGet(mThreadReadWriteDepth));
+		ThreadReadWriteCount localCounts(TlsGetValue(mThreadReadWriteDepth));
 		localCounts.readDepth++;
-		TlsSet(mThreadReadWriteDepth, PxUnionCast<void*>(localCounts));
+		TlsSetValue(mThreadReadWriteDepth, localCounts.getData());
 
 		// success if the current thread is already performing a write (API re-entry) or no writes are in progress
 		bool success = (localCounts.writeDepth > 0 || mConcurrentWriteCount == 0); 
@@ -2937,9 +2976,9 @@ void NpScene::stopRead() const
 		Ps::atomicDecrement(&mConcurrentReadCount); 
 
 		// update local threads read depth
-		ThreadReadWriteCount localCounts = PxUnionCast<ThreadReadWriteCount>(TlsGet(mThreadReadWriteDepth));
+		ThreadReadWriteCount localCounts(TlsGetValue(mThreadReadWriteDepth));
 		localCounts.readDepth--;
-		TlsSet(mThreadReadWriteDepth, PxUnionCast<void*>(localCounts));
+		TlsSetValue(mThreadReadWriteDepth, localCounts.getData());
 	}
 }
 
@@ -2956,9 +2995,9 @@ void NpScene::stopRead() const {}
 void NpScene::lockRead(const char* /*file*/, PxU32 /*line*/)
 {
 	// increment this threads read depth
-	ThreadReadWriteCount localCounts = PxUnionCast<ThreadReadWriteCount>(TlsGet(mThreadReadWriteDepth));
+	ThreadReadWriteCount localCounts(TlsGetValue(mThreadReadWriteDepth));
 	localCounts.readLockDepth++;
-	TlsSet(mThreadReadWriteDepth, PxUnionCast<void*>(localCounts));
+	TlsSetValue(mThreadReadWriteDepth, localCounts.getData());
 
 	// if we are the current writer then do nothing (allow reading from threads with write ownership)
 	if (mCurrentWriter == Thread::getId())
@@ -2972,14 +3011,14 @@ void NpScene::lockRead(const char* /*file*/, PxU32 /*line*/)
 void NpScene::unlockRead()
 {
 	// increment this threads read depth
-	ThreadReadWriteCount localCounts = PxUnionCast<ThreadReadWriteCount>(TlsGet(mThreadReadWriteDepth));
+	ThreadReadWriteCount localCounts(TlsGetValue(mThreadReadWriteDepth));
 	if (localCounts.readLockDepth < 1)
 	{
 		Ps::getFoundation().error(PxErrorCode::eINVALID_OPERATION, __FILE__, __LINE__, "PxScene::unlockRead() called without matching call to PxScene::lockRead(), behaviour will be undefined.");
 		return;
 	}
 	localCounts.readLockDepth--;
-	TlsSet(mThreadReadWriteDepth, PxUnionCast<void*>(localCounts));
+	TlsSetValue(mThreadReadWriteDepth, localCounts.getData());
 
 	// if we are the current writer then do nothing (allow reading from threads with write ownership)
 	if (mCurrentWriter == Thread::getId())
@@ -2993,14 +3032,14 @@ void NpScene::unlockRead()
 void NpScene::lockWrite(const char* file, PxU32 line)
 {
 	// increment this threads write depth
-	ThreadReadWriteCount localCounts = PxUnionCast<ThreadReadWriteCount>(TlsGet(mThreadReadWriteDepth));
+	ThreadReadWriteCount localCounts(TlsGetValue(mThreadReadWriteDepth));
 	if (localCounts.writeLockDepth == 0 && localCounts.readLockDepth > 0)
 	{
 		Ps::getFoundation().error(PxErrorCode::eINVALID_OPERATION, file?file:__FILE__, file?int(line):__LINE__, "PxScene::lockWrite() detected after a PxScene::lockRead(), lock upgrading is not supported, behaviour will be undefined.");
 		return;
 	}
 	localCounts.writeLockDepth++;
-	TlsSet(mThreadReadWriteDepth, PxUnionCast<void*>(localCounts));
+	TlsSetValue(mThreadReadWriteDepth, localCounts.getData());
 
 	// only lock on first call
 	if (localCounts.writeLockDepth == 1)
@@ -3015,14 +3054,14 @@ void NpScene::lockWrite(const char* file, PxU32 line)
 void NpScene::unlockWrite()
 {
 	// increment this thread's write depth
-	ThreadReadWriteCount localCounts = PxUnionCast<ThreadReadWriteCount>(TlsGet(mThreadReadWriteDepth));
+	ThreadReadWriteCount localCounts(TlsGetValue(mThreadReadWriteDepth));
 	if (localCounts.writeLockDepth < 1)
 	{
 		Ps::getFoundation().error(PxErrorCode::eINVALID_OPERATION, __FILE__, __LINE__, "PxScene::unlockWrite() called without matching call to PxScene::lockWrite(), behaviour will be undefined.");
 		return;
 	}
 	localCounts.writeLockDepth--;
-	TlsSet(mThreadReadWriteDepth, PxUnionCast<void*>(localCounts));
+	TlsSetValue(mThreadReadWriteDepth, localCounts.getData());
 
 	PX_ASSERT(mCurrentWriter == Thread::getId());
 
@@ -3165,6 +3204,108 @@ PxPvdSceneClient* NpScene::getScenePvdClient()
 	return NULL;
 }
 #endif
+
+void NpScene::sceneQueriesUpdate(physx::PxBaseTask* completionTask, bool controlSimulation)
+{
+	PX_SIMD_GUARD;
+
+	bool runUpdateTasks[PruningIndex::eCOUNT] = {true, true};
+	{
+		// write guard must end before scene queries tasks kicks off worker threads
+		NP_WRITE_CHECK(this);
+
+		PX_PROFILE_START_CROSSTHREAD("Basic.sceneQueriesUpdate", getContextId());
+
+		if(mSceneQueriesUpdateRunning)
+		{
+			//fetchSceneQueries doesn't get called
+			Ps::getFoundation().error(PxErrorCode::eINVALID_OPERATION, __FILE__, __LINE__, "PxScene::fetchSceneQueries was not called!");
+			return;
+		}
+	
+		// flush scene queries updates
+		mSQManager.flushUpdates();
+
+		// prepare scene queries for build - copy bounds
+		runUpdateTasks[PruningIndex::eSTATIC] = mSQManager.prepareSceneQueriesUpdate(PruningIndex::eSTATIC);
+		runUpdateTasks[PruningIndex::eDYNAMIC] = mSQManager.prepareSceneQueriesUpdate(PruningIndex::eDYNAMIC);
+
+		mSceneQueriesUpdateRunning = true;
+	}
+
+	{
+		PX_PROFILE_ZONE("Sim.sceneQueriesTaskSetup", getContextId());
+
+		if (controlSimulation)
+		{
+			{
+				PX_PROFILE_ZONE("Sim.resetDependencies", getContextId());
+				// Only reset dependencies, etc if we own the TaskManager. Will be false
+				// when an NpScene is controlled by an APEX scene.
+				mTaskManager->resetDependencies();
+			}
+			mTaskManager->startSimulation();
+		}
+
+		mSceneQueriesCompletion.setContinuation(*mTaskManager, completionTask);
+		if(runUpdateTasks[PruningIndex::eSTATIC])
+			mSceneQueriesStaticPrunerUpdate.setContinuation(&mSceneQueriesCompletion);
+		if(runUpdateTasks[PruningIndex::eDYNAMIC])
+			mSceneQueriesDynamicPrunerUpdate.setContinuation(&mSceneQueriesCompletion);
+
+		mSceneQueriesCompletion.removeReference();
+		if(runUpdateTasks[PruningIndex::eSTATIC])
+			mSceneQueriesStaticPrunerUpdate.removeReference();
+		if(runUpdateTasks[PruningIndex::eDYNAMIC])
+			mSceneQueriesDynamicPrunerUpdate.removeReference();
+	}
+}
+
+bool NpScene::checkSceneQueriesInternal(bool block)
+{
+	PX_PROFILE_ZONE("Basic.checkSceneQueries", getContextId());
+	return mSceneQueriesDone.wait(block ? Ps::Sync::waitForever : 0);
+}
+
+bool NpScene::checkQueries(bool block)
+{
+	return checkSceneQueriesInternal(block);
+}
+
+bool NpScene::fetchQueries(bool block)
+{
+	if(!mSceneQueriesUpdateRunning)
+	{
+		//fetchSceneQueries doesn't get called
+		Ps::getFoundation().error(PxErrorCode::eINVALID_OPERATION, __FILE__, __LINE__, 
+			"PxScene::fetchQueries: fetchQueries() called illegally! It must be called after sceneQueriesUpdate()");
+		return false;
+	}
+
+	if(!checkSceneQueriesInternal(block))
+		return false;
+
+	{
+		PX_SIMD_GUARD;
+
+		NP_WRITE_CHECK(this);
+
+		// we use cross thread profile here, to show the event in cross thread view
+		// PT: TODO: why do we want to show it in the cross thread view?
+		PX_PROFILE_START_CROSSTHREAD("Basic.fetchQueries", getContextId());
+
+		// flush updates and commit if work is done
+		mSQManager.flushUpdates();
+	
+		PX_PROFILE_STOP_CROSSTHREAD("Basic.fetchQueries", getContextId());
+		PX_PROFILE_STOP_CROSSTHREAD("Basic.sceneQueriesUpdate", getContextId());
+
+		mSceneQueriesDone.reset();
+		mSceneQueriesUpdateRunning = false;
+	}
+	return true;
+}
+
 
 PxBatchQuery* NpScene::createBatchQuery(const PxBatchQueryDesc& desc)
 {

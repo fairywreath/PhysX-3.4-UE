@@ -34,7 +34,7 @@
 #include "foundation/PxAssert.h"
 #include <math.h>
 
-#if PX_ANDROID
+#if PX_ANDROID || (PX_LINUX && !(PX_X64 || PX_X64)) // x86[_64] Linux uses inline assembly for debug break
 #include <signal.h> // for Ns::debugBreak() { raise(SIGTRAP); }
 #endif
 
@@ -98,7 +98,7 @@ PX_FORCE_INLINE void prefetchLine(const void* ptr, uint32_t offset = 0)
 /*!
 Prefetch \c count bytes starting at \c ptr.
 */
-#if PX_ANDROID || PX_IOS
+#if PX_ANDROID || PX_IOS || PX_OSX_ARM64
 PX_FORCE_INLINE void prefetch(const void* ptr, uint32_t count = 1)
 {
 	const char* cp = static_cast<const char*>(ptr);

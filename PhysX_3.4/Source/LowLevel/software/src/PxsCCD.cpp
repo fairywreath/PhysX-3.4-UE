@@ -194,9 +194,9 @@ namespace physx
 {
 
 	PxsCCDContext::PxsCCDContext(PxsContext* context, Dy::ThresholdStream& thresholdStream, PxvNphaseImplementationContext& nPhaseContext) :
-		mPostCCDSweepTask			(this, "PxsContext.postCCDSweep"),
-		mPostCCDAdvanceTask			(this, "PxsContext.postCCDAdvance"),
-		mPostCCDDepenetrateTask		(this, "PxsContext.postCCDDepenetrate"),
+		mPostCCDSweepTask			(context->getContextId(), this, "PxsContext.postCCDSweep"),
+		mPostCCDAdvanceTask			(context->getContextId(), this, "PxsContext.postCCDAdvance"),
+		mPostCCDDepenetrateTask		(context->getContextId(), this, "PxsContext.postCCDDepenetrate"),
 		mDisableCCDResweep			(false),
 		miCCDPass					(0),
 		mSweepTotalHits				(0),
@@ -688,7 +688,7 @@ bool PxsCCDPair::sweepAdvanceToToi(PxReal dt, bool clipTrajectoryToToi)
 #else
 			const PxReal impulseDivisor = sumRecipMass;
 #endif
-			const PxReal jImp = normalResponse/impulseDivisor;
+			const PxReal jImp = PxMax(-mMaxImpulse, normalResponse/impulseDivisor);
 
 			PxVec3 j(0.f);
 
@@ -857,8 +857,8 @@ class PxsCCDSweepTask : public Cm::Task
 	PxsCCDPair** 					mPairs;
 	PxU32							mNumPairs;
 public:
-	PxsCCDSweepTask(PxsCCDPair** pairs, PxU32 nPairs)
-		:	mPairs(pairs), mNumPairs(nPairs)
+	PxsCCDSweepTask(PxU64 contextID, PxsCCDPair** pairs, PxU32 nPairs)
+		:	Cm::Task(contextID), mPairs(pairs), mNumPairs(nPairs)
 	{
 	}
 
@@ -914,7 +914,7 @@ public:
 				PxU32 firstIslandPair, PxU32 firstThreadIsland, PxU32 islandsPerThread, PxU32 totalIslands, 
 				PxsCCDBody** islandBodies, PxU16* numIslandBodies, bool clipTrajectory, bool disableResweep,
 				PxI32* sweepTotalHits)
-		:	mCCDPairs(pairs), mNumPairs(nPairs), mContext(context), mCCDContext(ccdContext), mDt(dt),
+		:	Cm::Task(context->getContextId()), mCCDPairs(pairs), mNumPairs(nPairs), mContext(context), mCCDContext(ccdContext), mDt(dt),
 			mCCDPass(ccdPass), mCCDBodies(ccdBodies), mFirstThreadIsland(firstThreadIsland), 
 			mIslandsPerThread(islandsPerThread), mTotalIslandCount(totalIslands), mFirstIslandPair(firstIslandPair),
 			mIslandBodies(islandBodies), mNumIslandBodies(numIslandBodies),	mSweepTotalHits(sweepTotalHits),
@@ -1015,39 +1015,66 @@ public:
 						pair.mIsModifiable &&
 						mCCDContext->getCCDContactModifyCallback())
 					{
-						//create a modifiable contact and then 
-						PxModifiableContact point;
-						point.contact = pair.mMinToiPoint;
-						point.normal = pair.mMinToiNormal;
+
+						PX_ALIGN(16, PxU8 dataBuffer[sizeof(PxModifiableContact) + sizeof(PxContactPatch)]);
+
+						PxContactPatch* patch = reinterpret_cast<PxContactPatch*>(dataBuffer);
+						PxModifiableContact* point = reinterpret_cast<PxModifiableContact*>(patch + 1);
+
+						patch->mMassModification.mInvInertiaScale0 = 1.f;
+						patch->mMassModification.mInvInertiaScale1 = 1.f;
+						patch->mMassModification.mInvMassScale0 = 1.f;
+						patch->mMassModification.mInvMassScale1 = 1.f;
+
+						patch->normal = pair.mMinToiNormal;
+
+						patch->dynamicFriction = pair.mDynamicFriction;
+						patch->staticFriction = pair.mStaticFriction;
+						patch->materialIndex0 = pair.mMaterialIndex0;
+						patch->materialIndex1 = pair.mMaterialIndex1;
+
+						patch->startContactIndex = 0;
+						patch->nbContacts = 1;
+
+						patch->materialFlags = 0;
+						patch->internalFlags = 0;											//44  //Can be a U16
+
+
+						point->contact = pair.mMinToiPoint;
+						point->normal = pair.mMinToiNormal;
 
 						//KS - todo - reintroduce face indices!!!!
 						//point.internalFaceIndex0 = PXC_CONTACT_NO_FACE_INDEX;
 						//point.internalFaceIndex1 = pair.mFaceIndex;
-						point.materialIndex0 = pair.mMaterialIndex0;
-						point.materialIndex1 = pair.mMaterialIndex1;
-						point.dynamicFriction = pair.mDynamicFriction;
-						point.staticFriction = pair.mStaticFriction;
-						point.restitution = pair.mRestitution;
-						point.separation = 0.f;
-						point.maxImpulse = PX_MAX_REAL;
-						point.materialFlags= 0;
-						point.targetVelocity = PxVec3(0.f);
+						point->materialIndex0 = pair.mMaterialIndex0;
+						point->materialIndex1 = pair.mMaterialIndex1;
+						point->dynamicFriction = pair.mDynamicFriction;
+						point->staticFriction = pair.mStaticFriction;
+						point->restitution = pair.mRestitution;
+						point->separation = 0.f;
+						point->maxImpulse = PX_MAX_REAL;
+						point->materialFlags = 0;
+						point->targetVelocity = PxVec3(0.f);
 
-						mCCDContext->runCCDModifiableContact(&point, 1, pair.mCCDShape0->mShapeCore, pair.mCCDShape1->mShapeCore,
+						mCCDContext->runCCDModifiableContact(point, 1, pair.mCCDShape0->mShapeCore, pair.mCCDShape1->mShapeCore,
 							pair.mCCDShape0->mRigidCore, pair.mCCDShape1->mRigidCore, pair.mBa0, pair.mBa1);
 
 						//If the maxImpulse is 0, we return to the beginning of the loop, knowing that the application did not want an interaction
 						//between the pair.
-						if(point.maxImpulse == 0.f)
+						if(point->maxImpulse == 0.f)
 						{
 							pair.mMinToi = PX_MAX_REAL;
 							continue;
 						}
-						pair.mDynamicFriction = point.dynamicFriction;
-						pair.mStaticFriction = point.staticFriction;
-						pair.mRestitution = point.restitution;
-						pair.mMinToiPoint = point.contact;
-						pair.mMinToiNormal = point.normal;
+
+						if ((patch->internalFlags & PxContactPatch::eHAS_MAX_IMPULSE))
+							pair.mMaxImpulse = point->maxImpulse;
+
+						pair.mDynamicFriction = point->dynamicFriction;
+						pair.mStaticFriction = point->staticFriction;
+						pair.mRestitution = point->restitution;
+						pair.mMinToiPoint = point->contact;
+						pair.mMinToiNormal = point->normal;
 
 					}
 
@@ -1335,6 +1362,8 @@ void PxsCCDContext::updateCCD(PxReal dt, PxBaseTask* continuation, bool disableR
 
 	mCCDOverlaps.clear_NoDelete();
 
+	PxU32 nbKinematicStaticCollisions = 0;
+
 
 	bool needsSweep = false;
 
@@ -1478,9 +1507,10 @@ void PxsCCDContext::updateCCD(PxReal dt, PxBaseTask* continuation, bool disableR
 							b->mCCD->mOverlappingObjects = NULL;
 							b->mCCD->mUpdateCount = 0;
 							b->mCCD->mHasAnyPassDone = false;
-							
+							b->mCCD->mNbInteractionsThisPass = 0;
 						}
 						b->mCCD->mPassDone = 0;
+						b->mCCD->mNbInteractionsThisPass++;
 					}
 					if(ba0 && ba1)
 					{
@@ -1504,6 +1534,8 @@ void PxsCCDContext::updateCCD(PxReal dt, PxBaseTask* continuation, bool disableR
 				}
 				
 				//We now create the CCD pair. These are used in the CCD sweep and update phases
+				if (ba0->isKinematic() && (ba1 == NULL || ba1->isKinematic()))
+					nbKinematicStaticCollisions++;
 				{
 					PxsCCDPair& p = mCCDPairs.pushBack();
 					p.mBa0 = ba0;
@@ -1520,6 +1552,8 @@ void PxsCCDContext::updateCCD(PxReal dt, PxBaseTask* continuation, bool disableR
 					p.mFaceIndex = PXC_CONTACT_NO_FACE_INDEX;
 					p.mIsModifiable = cm->isChangeable() != 0;
 					p.mAppliedForce = 0.f;
+					p.mMaxImpulse = PxMin((ba0->mCore->mFlags & PxRigidBodyFlag::eENABLE_CCD_MAX_CONTACT_IMPULSE) ? ba0->mCore->maxContactImpulse : PX_MAX_F32, 
+						(ba1 && ba1->mCore->mFlags & PxRigidBodyFlag::eENABLE_CCD_MAX_CONTACT_IMPULSE) ? ba1->mCore->maxContactImpulse : PX_MAX_F32);
 
 #if PX_ENABLE_SIM_STATS
 					mContext->mSimStats.mNbCCDPairs[PxMin(p.mG0, p.mG1)][PxMax(p.mG0, p.mG1)] ++;
@@ -1570,7 +1604,7 @@ void PxsCCDContext::updateCCD(PxReal dt, PxBaseTask* continuation, bool disableR
 	const PxU16 noLabelYet = 0xFFFF;
 	
 	//Temporary array allocations. Ideally, we should use the scratch pad for there
-	Array<PxU16> islandLabels; 
+	Array<PxU32> islandLabels; 
 	islandLabels.resize(ccdBodyCount);
 	Array<const PxsCCDBody*> stack; 
 	stack.reserve(ccdBodyCount);
@@ -1584,14 +1618,17 @@ void PxsCCDContext::updateCCD(PxReal dt, PxBaseTask* continuation, bool disableR
 	for (PxU32 j = 0; j < ccdBodyCount; j++)
 		islandLabels[j] = noLabelYet;
 
-	PxU16 islandCount = 0;
+	PxU32 islandCount = 0;
 	PxU32 stackSize = 0;
 	const PxsCCDBody* top = NULL;
 	
 	for (PxU32 j = 0; j < ccdBodyCount; j++)
 	{
 		//If the body has already been labelled or if it is kinematic, continue
-		if (islandLabels[j] != noLabelYet || mCCDBodies[j].mBody->isKinematic())
+		//Also, if the body has no interactions this pass, continue. In single-pass CCD, only bodies with interactions would be part of the CCD. However,
+		//with multi-pass CCD, we keep all bodies that interacted in previous passes. If the body now has no interactions, we skip it to ensure that island grouping doesn't fail in
+		//later stages by assigning an island ID to a body with no interactions
+		if (islandLabels[j] != noLabelYet || mCCDBodies[j].mBody->isKinematic() || mCCDBodies[j].mNbInteractionsThisPass == 0)
 			continue;
 
 		top = &mCCDBodies[j];
@@ -1626,6 +1663,15 @@ void PxsCCDContext::updateCCD(PxReal dt, PxBaseTask* continuation, bool disableR
 		islandCount++;
 	}
 
+	PxU32 kinematicIslandId = islandCount;
+
+	islandCount += nbKinematicStaticCollisions;
+
+	for (PxU32 i = kinematicIslandId; i < islandCount; ++i)
+		mIslandSizes[i] = 1;
+
+	
+
 		// --------------------------------------------------------------------------------------
 	// label pairs with island ids
 	// (need an extra loop since we don't maintain a mapping from atom to all of it's pairs)
@@ -1639,11 +1685,12 @@ void PxsCCDContext::updateCCD(PxReal dt, PxBaseTask* continuation, bool disableR
 		PxsCCDPair& p = *mCCDPtrPairs[j];
 		PxU32 id0 = p.mBa0 && !p.mBa0->isKinematic()? islandLabels[p.mBa0->mCCD->getIndex()] : staticLabel;
 		PxU32 id1 = p.mBa1 && !p.mBa1->isKinematic()? islandLabels[p.mBa1->mCCD->getIndex()] : staticLabel;
-		PX_ASSERT(id0 != 0xFFFF || id1 != 0xFFFF);
 
-		PX_ASSERT(id0 == staticLabel || id1 == staticLabel || (id0 == id1));
+		PxU32 islandId = PxMin(id0, id1);
+		if (islandId == staticLabel)
+			islandId = kinematicIslandId++;
 
-		p.mIslandId = PxMin(id0, id1);
+		p.mIslandId = islandId;
 		mCCDIslandHistogram[p.mIslandId] ++;
 		PX_ASSERT(p.mIslandId != staticLabel);
 		totalActivePairs++;
@@ -1693,8 +1740,7 @@ void PxsCCDContext::updateCCD(PxReal dt, PxBaseTask* continuation, bool disableR
 		PX_ASSERT_WITH_MESSAGE(ptr, "Failed to allocate PxsCCDSweepTask");
 		const PxU32 batchEnd = PxMin(nPairs, batchBegin + mCCDPairsPerBatch);
 		PX_ASSERT(batchEnd >= batchBegin);
-		PxsCCDSweepTask* task = PX_PLACEMENT_NEW(ptr, PxsCCDSweepTask)(
-			mCCDPtrPairs.begin() + batchBegin, batchEnd - batchBegin);
+		PxsCCDSweepTask* task = PX_PLACEMENT_NEW(ptr, PxsCCDSweepTask)(mContext->getContextId(), mCCDPtrPairs.begin() + batchBegin, batchEnd - batchBegin);
 		task->setContinuation(*mContext->mTaskManager, &mPostCCDSweepTask);
 		task->removeReference();
 	}
@@ -1899,6 +1945,7 @@ void PxsCCDContext::postCCDDepenetrate(PxBaseTask* /*continuation*/)
 	for (PxU32 j = 0; j < mCCDBodies.size(); j ++)
 	{
 		mCCDBodies[j].mOverlappingObjects = NULL;
+		mCCDBodies[j].mNbInteractionsThisPass = 0;
 	}
 
 	mCCDOverlaps.clear_NoDelete();

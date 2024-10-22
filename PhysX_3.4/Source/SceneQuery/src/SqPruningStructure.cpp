@@ -222,7 +222,7 @@ bool PruningStructure::build(PxRigidActor*const* actors, PxU32 nbActors)
 	{
 		if(numShapes[i])
 		{
-			bounds[i] = reinterpret_cast<PxBounds3*>(PX_ALLOC(sizeof(PxBounds3)*numShapes[i], "Pruner bounds"));			
+			bounds[i] = reinterpret_cast<PxBounds3*>(PX_ALLOC(sizeof(PxBounds3)*(numShapes[i] + 1), "Pruner bounds"));			
 		}
 	}
 
@@ -306,7 +306,7 @@ void PruningStructure::resolveReferences(PxDeserializationContext& context)
 
 //////////////////////////////////////////////////////////////////////////
 
-void PruningStructure::requires(PxProcessPxBaseCallback& c)
+void PruningStructure::requiresObjects(PxProcessPxBaseCallback& c)
 {
 	if (!isValid())		
 		return;

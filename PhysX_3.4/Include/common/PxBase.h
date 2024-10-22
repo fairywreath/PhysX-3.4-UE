@@ -175,7 +175,13 @@ protected:
 	/**
 	\brief Returns whether a given type name matches with the type of this instance
 	*/	
+#if PX_EMSCRIPTEN
+public:
+#endif
 	virtual				bool				isKindOf(const char* superClass) const { return !::strcmp(superClass, "PxBase"); }
+#if PX_EMSCRIPTEN
+protected:
+#endif
 
 	template<class T>	bool				typeMatch() const
 											{

@@ -832,7 +832,14 @@ Before using this function the user must call #PxCreatePhysics().
 
 \note The behavior of this method is undefined if the Physics SDK instance has not been created already.
 */
+#if PX_LINUX
+	#pragma clang diagnostic push
+	#pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
+#endif // PX_LINUX
 PX_C_EXPORT PX_PHYSX_CORE_API physx::PxPhysics& PX_CALL_CONV PxGetPhysics();
+#if PX_LINUX
+	#pragma clang diagnostic pop
+#endif // PX_LINUX
 
 /** @} */
 #endif

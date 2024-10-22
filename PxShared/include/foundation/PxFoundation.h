@@ -126,7 +126,14 @@ PxCreateFoundation(physx::PxU32 version, physx::PxAllocatorCallback& allocator, 
 
 @see PxCreateFoundation()
 */
+#if PX_LINUX
+	#pragma clang diagnostic push
+	#pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
+#endif // PX_LINUX
 PX_C_EXPORT PX_FOUNDATION_API physx::PxFoundation& PX_CALL_CONV PxGetFoundation();
+#if PX_LINUX
+	#pragma clang diagnostic pop
+#endif // PX_LINUX
 
 namespace physx
 {

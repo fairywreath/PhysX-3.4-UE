@@ -37,15 +37,28 @@
 #error "This file should only be included by Unix builds!!"
 #endif
 
-#if PX_LINUX && !defined(__CUDACC__)
+#if PX_LINUX && !defined(__CUDACC__) && !PX_EMSCRIPTEN
 	// Linux and CUDA compilation does not work with std::isfnite, as it is not marked as CUDA callable	
 	#ifndef isfinite
-		#define isfinite	std::isfinite
+		#include <cmath>
+		using std::isfinite;
 	#endif
 #endif
 
 #include <math.h>
 #include <float.h>
+
+#if PX_ANDROID
+	// If cmath is included after math.h, it will undefine isfinite. If that's the case, use the version in the std namespace instead.
+	#ifndef isfinite
+		#ifdef PLATFORM_ANDROID_NDK_VERSION
+			#if PLATFORM_ANDROID_NDK_VERSION >= 200200
+				#include <cmath>
+			#endif
+		#endif
+		using std::isfinite;
+	#endif
+#endif
 
 namespace physx
 {

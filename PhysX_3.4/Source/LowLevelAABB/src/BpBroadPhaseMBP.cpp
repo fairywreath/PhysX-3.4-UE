@@ -81,7 +81,7 @@ using namespace Cm;
 
 struct RegionHandle : public Ps::UserAllocated
 {
-	PxU16	mHandle;			// Handle from region
+	MBP_Index	mHandle;		// Handle from region
 	PxU16	mInternalBPHandle;	// Index of region data within mRegions
 };
 
@@ -665,7 +665,10 @@ MBP_Pair* MBP_PairManager::addPair(PxU32 id0, PxU32 id1, const BpHandle* PX_REST
 {
 	PX_ASSERT(id0!=INVALID_ID);
 	PX_ASSERT(id1!=INVALID_ID);
-
+	if (id0 == INVALID_ID || id1 == INVALID_ID)
+	{
+		return NULL;
+	}
 	if(groups)
 	{
 		const MBP_ObjectIndex index0 = decodeHandle_Index(id0);
@@ -2966,7 +2969,7 @@ bool MBP::updateObject(MBP_Handle handle, const MBP_AABB& box)
 //			continue;
 		const PxU32 regionIndex = currentOverlaps[i];
 		const MBP_Index BPHandle = regions[regionIndex].mBP->addObject(box, handle, isStatic!=0);
-		newHandles[nbNewHandles].mHandle = Ps::to16(BPHandle);
+		newHandles[nbNewHandles].mHandle = BPHandle;
 		newHandles[nbNewHandles].mInternalBPHandle = Ps::to16(regionIndex);
 		nbNewHandles++;
 	}
@@ -3110,7 +3113,7 @@ bool MBP::updateObjectAfterNewRegionAdded(MBP_Handle handle, const MBP_AABB& box
 		PX_ASSERT(currentRegion.mBox.intersects(box));
 #endif
 		const MBP_Index BPHandle = addedRegion->addObject(box, handle, isStatic!=0);
-		newHandles[nbNewHandles].mHandle = Ps::to16(BPHandle);
+		newHandles[nbNewHandles].mHandle = BPHandle;
 		newHandles[nbNewHandles].mInternalBPHandle = Ps::to16(regionIndex);
 		nbNewHandles++;
 	}
@@ -3374,10 +3377,13 @@ void MBP::setTransientBounds(const PxBounds3* bounds, const PxReal* contactDista
 
 #define DEFAULT_CREATED_DELETED_PAIRS_CAPACITY 1024
 
-BroadPhaseMBP::BroadPhaseMBP(PxU32 maxNbRegions,
+BroadPhaseMBP::BroadPhaseMBP(	PxU32 maxNbRegions,
 								PxU32 maxNbBroadPhaseOverlaps,
 								PxU32 maxNbStaticShapes,
-								PxU32 maxNbDynamicShapes) :
+								PxU32 maxNbDynamicShapes,
+								PxU64 contextID) :
+	mMBPUpdateWorkTask		(contextID),
+	mMBPPostUpdateWorkTask	(contextID),
 	mMapping				(NULL),
 	mCapacity				(0),
 	mGroups					(NULL)

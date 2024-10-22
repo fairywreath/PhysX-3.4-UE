@@ -37,8 +37,9 @@ using namespace physx;
 
 namespace
 {
-
-#define SN_NUM_BINARY_PLATFORMS 13
+	// @MIXEDREALITY_CHANGE : BEGIN
+#define SN_NUM_BINARY_PLATFORMS 14
+	// @MIXEDREALITY_CHANGE : END
 const PxU32 sBinaryPlatformTags[SN_NUM_BINARY_PLATFORMS] =
 {
 	PX_MAKE_FOURCC('W','_','3','2'),
@@ -53,7 +54,10 @@ const PxU32 sBinaryPlatformTags[SN_NUM_BINARY_PLATFORMS] =
 	PX_MAKE_FOURCC('A','A','6','4'),
 	PX_MAKE_FOURCC('X','O','N','E'),
 	PX_MAKE_FOURCC('N','X','3','2'),
-	PX_MAKE_FOURCC('N','X','6','4')
+	PX_MAKE_FOURCC('N','X','6','4'),
+	// @MIXEDREALITY_CHANGE : BEGIN
+	PX_MAKE_FOURCC('_','U','W','P')
+	// @MIXEDREALITY_CHANGE : END
 };
 
 const char* sBinaryPlatformNames[SN_NUM_BINARY_PLATFORMS] =
@@ -69,8 +73,11 @@ const char* sBinaryPlatformNames[SN_NUM_BINARY_PLATFORMS] =
 	"ios",
 	"ios64",
 	"xboxone",
-	"nx32",
-	"nx64"
+	"switch32",
+	"switch64",
+	// @MIXEDREALITY_CHANGE : BEGIN
+	"HoloLens"
+	// @MIXEDREALITY_CHANGE : END
 };
 
 #define SN_NUM_BINARY_COMPATIBLE_VERSIONS 1
@@ -89,9 +96,9 @@ namespace physx { namespace Sn {
 
 PxU32 getBinaryPlatformTag()
 {
-#if PX_WINDOWS && PX_X86
+#if PX_WINDOWS_FAMILY && (PX_X86 || PX_ARM)
 	return sBinaryPlatformTags[0];
-#elif PX_WINDOWS && PX_X64
+#elif PX_WINDOWS_FAMILY && (PX_X64 || PX_A64)
 	return sBinaryPlatformTags[1];
 #elif PX_LINUX && (PX_X86 || PX_ARM)
 	return sBinaryPlatformTags[2];
@@ -101,6 +108,8 @@ PxU32 getBinaryPlatformTag()
 	return sBinaryPlatformTags[4];
 #elif PX_OSX && PX_X64
 	return sBinaryPlatformTags[5];
+#elif PX_OSX && PX_A64
+	return sBinaryPlatformTags[9];
 #elif PX_PS4
 	return sBinaryPlatformTags[6];
 #elif PX_ANDROID
@@ -111,10 +120,14 @@ PxU32 getBinaryPlatformTag()
 	return sBinaryPlatformTags[9];
 #elif PX_XBOXONE
 	return sBinaryPlatformTags[10];
-#elif PX_NX && !PX_A64
+#elif PX_SWITCH && !PX_A64
 	return sBinaryPlatformTags[11];
-#elif PX_NX && PX_A64
+#elif PX_SWITCH && PX_A64
 	return sBinaryPlatformTags[12];
+	// @MIXEDREALITY_CHANGE : BEGIN
+#elif PX_HOLOLENS
+	return sBinaryPlatformTags[13];
+	// @MIXEDREALITY_CHANGE : END
 #else
 	#error Unknown binary platform
 #endif

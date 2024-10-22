@@ -219,7 +219,7 @@ namespace physx { namespace Sn {
 							, PxU32 inObjPerLine, PxStrideIterator<const TDataType>& inData, TAccessOperator inAccessOperator
 							, PxU32 inBufSize, const char* inPropName, PxU32 /*inStride*/, TWriteOperator inOperator )
 	{
-#if PX_NX
+#if PX_SWITCH
 		const auto *dat = &inData[0];
 		if (inBufSize && dat != NULL)
 #else
@@ -245,7 +245,7 @@ namespace physx { namespace Sn {
 							, PxU32 inObjPerLine, PxStrideIterator<const TDataType>& inData, TAccessOperator /*inAccessOperator*/
 							, PxU32 inBufSize, const char* inPropName, const PxU32ToName* inTable)
 	{
-#if PX_NX
+#if PX_SWITCH
 		const auto *dat = &inData[0];
 		if (inBufSize && dat != NULL)
 #else

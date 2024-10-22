@@ -35,10 +35,6 @@
 #include "PxsContactManagerState.h"
 #include "PsArray.h"
 
-#if PX_SUPPORT_GPU_PHYSX
-#include "Pxg.h"
-#endif
-
 namespace physx
 {
 
@@ -137,6 +133,7 @@ public:
 	virtual ~PxvNphaseImplementationContext() {}
 	virtual void						destroy() = 0;
 	virtual void						updateContactManager(PxReal dt, bool hasBoundsArrayChanged, bool hasContactDistanceChanged, PxBaseTask* continuation, PxBaseTask* firstPassContinuation) = 0;
+	virtual void						postBroadPhaseUpdateContactManager() = 0;
 	virtual void						secondPassUpdateContactManager(PxReal dt, PxBaseTask* continuation) = 0;
 	virtual void						fetchUpdateContactManager() = 0;
 	

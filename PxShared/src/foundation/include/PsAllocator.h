@@ -37,7 +37,11 @@
 
 #if(PX_WINDOWS_FAMILY || PX_XBOXONE)
 #include <exception>
+#if(_MSC_VER >= 1923) || defined(__clang__)
+#include <typeinfo>
+#else
 #include <typeinfo.h>
+#endif
 #endif
 #if(PX_APPLE_FAMILY)
 #include <typeinfo>
@@ -108,7 +112,7 @@
 #elif PX_XBOXONE
 #include <malloc.h>
 #define PxAlloca(x) alloca(x)
-#elif PX_NX
+#elif PX_SWITCH
 #include <malloc.h>
 #define PxAlloca(x) alloca(x)
 #endif

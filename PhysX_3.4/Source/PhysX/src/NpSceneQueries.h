@@ -176,6 +176,10 @@ public:
 	PX_FORCE_INLINE	const Scb::Scene&				getScene()					const	{ return mScene;								}
 	PX_FORCE_INLINE	PxU32							getFlagsFast()				const	{ return mScene.getFlags();						}
 	PX_FORCE_INLINE	Sq::SceneQueryManager&			getSceneQueryManagerFast()			{ return mSQManager;							}
+	PX_FORCE_INLINE	PxSceneQueryUpdateMode::Enum	getSceneQueryUpdateModeFast() const	{ return mSceneQueryUpdateMode;					}
+
+					void							sceneQueriesStaticPrunerUpdate(PxBaseTask* continuation);
+					void							sceneQueriesDynamicPrunerUpdate(PxBaseTask* continuation);
 
 					Scb::Scene						mScene;
 					Sq::SceneQueryManager			mSQManager;
@@ -183,6 +187,13 @@ public:
 					const Gu::GeomRaycastTable&		mCachedRaycastFuncs;
 					const Gu::GeomSweepFuncs&		mCachedSweepFuncs;
 					const Gu::GeomOverlapTable*		mCachedOverlapFuncs;
+
+					typedef Cm::DelegateTask<NpSceneQueries, &NpSceneQueries::sceneQueriesStaticPrunerUpdate> SceneQueriesStaticPrunerUpdate;
+					typedef Cm::DelegateTask<NpSceneQueries, &NpSceneQueries::sceneQueriesDynamicPrunerUpdate> SceneQueriesDynamicPrunerUpdate;
+					SceneQueriesStaticPrunerUpdate	mSceneQueriesStaticPrunerUpdate;
+					SceneQueriesDynamicPrunerUpdate	mSceneQueriesDynamicPrunerUpdate;
+
+					PxSceneQueryUpdateMode::Enum    mSceneQueryUpdateMode;
 
 #if PX_SUPPORT_PVD
 public:
@@ -194,6 +205,18 @@ PX_FORCE_INLINE				Vd::PvdSceneQueryCollector&	getSingleSqCollector() const {ret
 PX_FORCE_INLINE				Vd::PvdSceneQueryCollector&	getBatchedSqCollector() const {return mBatchedSqCollector;}
 #endif // PX_SUPPORT_PVD
 };
+
+#if PX_SUPPORT_EXTERN_TEMPLATE
+//explicit template instantiation declaration
+extern template
+bool NpSceneQueries::multiQuery<PxRaycastHit>(const MultiQueryInput&, PxHitCallback<PxRaycastHit>&, PxHitFlags, const PxQueryCache*, const PxQueryFilterData&, PxQueryFilterCallback*, BatchQueryFilterData*) const;
+
+extern template
+bool NpSceneQueries::multiQuery<PxOverlapHit>(const MultiQueryInput&, PxHitCallback<PxOverlapHit>&, PxHitFlags, const PxQueryCache*, const PxQueryFilterData&, PxQueryFilterCallback*, BatchQueryFilterData*) const;
+
+extern template
+bool NpSceneQueries::multiQuery<PxSweepHit>(const MultiQueryInput&, PxHitCallback<PxSweepHit>&, PxHitFlags, const PxQueryCache*, const PxQueryFilterData&, PxQueryFilterCallback*, BatchQueryFilterData*) const;
+#endif
 
 namespace Sq { class AABBPruner; class AABBTreeRuntimeNode; class AABBTree; }
 

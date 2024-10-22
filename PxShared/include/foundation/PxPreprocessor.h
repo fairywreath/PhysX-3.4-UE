@@ -81,15 +81,24 @@ Operating system defines, see http://sourceforge.net/p/predef/wiki/OperatingSyst
 #define PX_ANDROID 1
 #elif defined(__linux__) || defined (__EMSCRIPTEN__) // note: __ANDROID__ implies __linux__
 #define PX_LINUX 1
-#elif defined(__APPLE__) && (defined(__arm__) || defined(__arm64__))
-#define PX_IOS 1
 #elif defined(__APPLE__)
-#define PX_OSX 1
+	#include <TargetConditionals.h>
+	#if TARGET_OS_OSX
+		#define PX_OSX 1
+		#if TARGET_CPU_X86_64
+			#define PX_OSX_X86_64 1
+		#endif
+		#if TARGET_CPU_ARM64
+			#define PX_OSX_ARM64 1
+		#endif
+	#elif TARGET_OS_IPHONE
+		#define PX_IOS 1
+	#endif
 #elif defined(__ORBIS__)
 #define PX_PS4 1
 #elif defined(__NX__)
-#define PX_NX 1
-#else
+#define PX_SWITCH 1
+#elif !defined(PX_EXTERNAL_PLATFORM) // EPIC - OS defines are passed via the external CMake config.
 #error "Unknown operating system"
 #endif
 
@@ -100,10 +109,18 @@ Architecture defines, see http://sourceforge.net/p/predef/wiki/Architectures/
 #define PX_X64 1
 #elif defined(__i386__) || defined(_M_IX86) || defined (__EMSCRIPTEN__)
 #define PX_X86 1
-#elif defined(__arm64__) || defined(__aarch64__)
+#elif defined(__arm64__) || defined(__aarch64__) || defined(_M_ARM64)
 #define PX_A64 1
 #elif defined(__arm__) || defined(_M_ARM)
 #define PX_ARM 1
+//// @MIXEDREALITY_CHANGE : BEGIN : TODO
+//#ifdef PX_WIN32
+//#undef PX_WIN32
+//#endif
+//#ifdef PX_WIN64
+//#undef PX_WIN32
+//#endif
+//// @MIXEDREALITY_CHANGE : END
 #elif defined(__ppc__) || defined(_M_PPC) || defined(__CELLOS_LV2__)
 #define PX_PPC 1
 #else
@@ -117,13 +134,26 @@ SIMD defines
 #if defined(__i386__) || defined(_M_IX86) || defined(__x86_64__) || defined(_M_X64) || (defined (__EMSCRIPTEN__) && defined(__SSE2__))
 #define PX_SSE2 1
 #endif
-#if defined(_M_ARM) || defined(__ARM_NEON__) || defined(__ARM_NEON)
+#if defined(_M_ARM) || defined(__ARM_NEON__) || defined(__ARM_NEON) || defined (_M_ARM64)
 #define PX_NEON 1
 #endif
 #if defined(_M_PPC) || defined(__CELLOS_LV2__)
 #define PX_VMX 1
 #endif
 #endif
+
+// @ATG_CHANGE : BEGIN HoloLens support
+#ifdef WINAPI_FAMILY
+#ifdef WINAPI_FAMILY_APP
+#ifdef PX_ARM_FAMILY
+#if WINAPI_FAMILY == WINAPI_FAMILY_APP && PX_ARM_FAMILY
+#define PX_HOLOLENS 1
+#endif
+#endif  //PX_ARM_FAMILY
+#endif  //WINAPI_FAMILY_APP
+#endif  //WINAPI_FAMILY
+
+// @ATG_CHANGE : END
 
 /**
 define anything not defined on this platform to 0
@@ -158,11 +188,17 @@ define anything not defined on this platform to 0
 #ifndef PX_OSX
 #define PX_OSX 0
 #endif
+#ifndef PX_OSX_X86_64
+#define PX_OSX_X86_64 0
+#endif
+#ifndef PX_OSX_ARM64
+#define PX_OSX_ARM64 0
+#endif
 #ifndef PX_PS4
 #define PX_PS4 0
 #endif
-#ifndef PX_NX
-#define PX_NX 0
+#ifndef PX_SWITCH
+#define PX_SWITCH 0
 #endif
 #ifndef PX_X64
 #define PX_X64 0
@@ -188,6 +224,11 @@ define anything not defined on this platform to 0
 #ifndef PX_VMX
 #define PX_VMX 0
 #endif
+// @ATG_CHANGE : BEGIN HoloLens support
+#ifndef PX_HOLOLENS
+#define PX_HOLOLENS 0
+#endif
+// @ATG_CHANGE : END
 
 /*
 define anything not defined through the command line to 0
@@ -206,6 +247,9 @@ define anything not defined through the command line to 0
 #endif
 #ifndef PX_DOXYGEN
 #define PX_DOXYGEN 0
+#endif
+#ifndef NV_WIIU
+#define NV_WIIU 0
 #endif
 
 /**
@@ -286,7 +330,7 @@ no definition       - this will allow DLLs and libraries to use the exported API
 
 */
 
-#if PX_WINDOWS_FAMILY && !PX_ARM_FAMILY
+#if PX_WINDOWS_FAMILY 
 #ifndef PX_FOUNDATION_DLL
 #define PX_FOUNDATION_API PX_DLL_IMPORT
 #elif PX_FOUNDATION_DLL
@@ -425,7 +469,7 @@ General defines
 */
 
 // static assert
-#if(defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7))) || (PX_PS4) || (PX_APPLE_FAMILY) || (PX_NX) || (PX_CLANG && PX_ARM)
+#if(defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 7))) || (PX_PS4) || (PX_APPLE_FAMILY) || (PX_SWITCH) || (PX_CLANG && PX_ARM)
 #define PX_COMPILE_TIME_ASSERT(exp) typedef char PxCompileTimeAssert_Dummy[(exp) ? 1 : -1] __attribute__((unused))
 #else
 #define PX_COMPILE_TIME_ASSERT(exp) typedef char PxCompileTimeAssert_Dummy[(exp) ? 1 : -1]
@@ -488,7 +532,8 @@ struct PxPackValidation
 	long long a;
 };
 #endif
-#if !PX_APPLE_FAMILY && !PX_EMSCRIPTEN
+// clang (as of version 3.9) cannot align doubles on 8 byte boundary  when compiling for Intel 32 bit target
+#if !PX_APPLE_FAMILY && !PX_EMSCRIPTEN && !(PX_CLANG && PX_X86)
 PX_COMPILE_TIME_ASSERT(PX_OFFSET_OF(PxPackValidation, a) == 8);
 #endif
 
@@ -531,6 +576,12 @@ protected:                                                                      
 #endif
 
 #define PX_SUPPORT_COMPUTE_PHYSX 0
+
+#ifndef PX_SUPPORT_EXTERN_TEMPLATE
+#define PX_SUPPORT_EXTERN_TEMPLATE ((!PX_ANDROID) && (PX_VC != 11))
+#else
+#define PX_SUPPORT_EXTERN_TEMPLATE 0
+#endif
 
 /** @} */
 #endif // #ifndef PXFOUNDATION_PXPREPROCESSOR_H

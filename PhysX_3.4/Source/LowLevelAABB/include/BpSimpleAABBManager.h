@@ -135,6 +135,7 @@ namespace Bp
 
 		PX_FORCE_INLINE void initEntry(PxU32 index)
 		{
+			index++;	// PT: always pretend we need one more entry, to make sure reading the last used entry will be SIMD-safe.
 			const PxU32 oldCapacity = mBounds.capacity();
 			if(index>=oldCapacity)
 			{
@@ -149,7 +150,6 @@ namespace Bp
 			Gu::computeBounds(mBounds[index], geom.getGeometry(), transform, 0.0f, NULL, 1.0f, extrudeHeightfieldBounds);
 			mHasAnythingChanged = true;
 		}
-
 
 		PX_FORCE_INLINE const PxBounds3& getBounds(PxU32 index) const
 		{
@@ -178,7 +178,7 @@ namespace Bp
 			return mBounds;
 		}
 
-		PX_FORCE_INLINE PxU32 getCapacity()
+		PX_FORCE_INLINE PxU32 getCapacity()	const
 		{
 			return mBounds.size();
 		}
@@ -324,6 +324,7 @@ namespace Bp
 		BoundsIndex		destroyAggregate(AggregateHandle aggregateHandle);
 
 		bool			addBounds(BoundsIndex index, PxReal contactDistance, PxU32 group, void* userdata, AggregateHandle aggregateHandle, PxU8 volumeType);
+		void			reserveSpaceForBounds(BoundsIndex index);
 		void			removeBounds(BoundsIndex index);
 
 		void			setContactOffset(BoundsIndex handle, PxReal offset)
@@ -403,11 +404,13 @@ namespace Bp
 		PX_FORCE_INLINE void*						getUserData(const BoundsIndex index) const { if (index < mVolumeData.size()) return mVolumeData[index].getUserData(); return NULL; }
 		PX_FORCE_INLINE	PxU64						getContextId()				const	{ return mContextID;				}
 
+		void postBroadPhase(PxBaseTask*, PxBaseTask* narrowPhaseUnlockTask);
+
 	private:
 		void reserveShapeSpace(PxU32 nbShapes);
-		void postBroadPhase(PxBaseTask*);
+		
 
-		Cm::DelegateTask<SimpleAABBManager, &SimpleAABBManager::postBroadPhase>			mPostBroadPhase;
+		//Cm::DelegateTask<SimpleAABBManager, &SimpleAABBManager::postBroadPhase>			mPostBroadPhase;
 
 		FinalizeUpdateTask				mFinalizeUpdateTask;
 
@@ -437,8 +440,8 @@ namespace Bp
 
 		PX_FORCE_INLINE void initEntry(BoundsIndex index, PxReal contactDistance, PxU32 group, void* userData)
 		{
-			if(index >= mVolumeData.size())
-				reserveShapeSpace(index);
+			if((index+1) >= mVolumeData.size())
+				reserveShapeSpace(index+1);
 
 			// PT: TODO: why is this needed at all? Why aren't size() and capacity() enough?
 			mUsedSize = PxMax(index+1, mUsedSize);

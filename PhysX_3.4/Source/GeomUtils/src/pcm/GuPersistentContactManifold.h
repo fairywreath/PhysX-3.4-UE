@@ -38,6 +38,15 @@
 
 #define PCM_LOW_LEVEL_DEBUG	0
 
+#ifndef PX_CLANG 
+// @MIXEDREALITY_CHANGE : BEGIN
+// 4324 - structure was padded due to declspec(align())
+#ifdef _MSC_VER
+#pragma warning( disable : 4324)
+#endif
+// @MIXEDREALITY_CHANGE : END
+#endif
+
 namespace physx
 {
 
@@ -51,6 +60,8 @@ namespace physx
 #define GU_CAPSULE_MANIFOLD_CACHE_SIZE 3
 #define GU_MAX_MANIFOLD_SIZE 6
 #define GU_MESH_CONTACT_REDUCTION_THRESHOLD	16
+
+#define GU_MANIFOLD_INVALID_INDEX	0xffffffff
 
 
 //ML: this is used to compared with the shape's margin to decide the final tolerance used in the manifold to validate the existing contacts.
@@ -317,13 +328,13 @@ public:
 	void addBatchManifoldContacts2( const PersistentContact* manifoldPoints, const PxU32 numPoints);//max two points of contacts             
 	
 	//This function is used in the box/convexhull full manifold contact generation(maximum 4 points). 
-	void addBatchManifoldContacts(const PersistentContact* manifoldPoints, const PxU32 numPoints);
+	void addBatchManifoldContacts(const PersistentContact* manifoldPoints, const PxU32 numPoints, const PxReal toleranceLength);
 	//This function is using the cluster algorithm to reduce contacts
 	void reduceBatchContactsCluster(const PersistentContact* manifoldPoints, const PxU32 numPoints);
 	//This function is called by addBatchManifoldContacts2 to reduce the manifold contacts to 2 points;
 	void reduceBatchContacts2(const PersistentContact* manifoldPoints, const PxU32 numPoints);
 	//This function is called by addBatchManifoldContacts to reduce the manifold contacts to 4 points
-	void reduceBatchContacts(const PersistentContact* manifoldPoints, const PxU32 numPoints);
+	void reduceBatchContacts(const PersistentContact* manifoldPoints, const PxU32 numPoints, const PxReal toleranceLength);
 
 	//This function is used for incremental manifold contact reduction for box/convexhull
 	PxU32 reduceContactsForPCM(const Ps::aos::Vec3VArg localPointA, const Ps::aos::Vec3VArg localPointB, const Ps::aos::Vec4VArg localNormalPen);
@@ -341,7 +352,7 @@ public:
 	//This function is for adding box/convexhull manifold contacts to the contact buffer
 	void addManifoldContactsToContactBuffer(Gu::ContactBuffer& contactBuffer, const Ps::aos::Vec3VArg normal, const Ps::aos::PsTransformV& transf1, const Ps::aos::FloatVArg contactOffset);
 	//This function is for adding sphere/capsule manifold contacts to the contact buffer
-	void addManifoldContactsToContactBuffer(Gu::ContactBuffer& contactBuffer, const Ps::aos::Vec3VArg normal, const Ps::aos::PsTransformV& transf0, const Ps::aos::FloatVArg radius, const Ps::aos::FloatVArg contactOffset);
+	void addManifoldContactsToContactBuffer(Gu::ContactBuffer& contactBuffer, const Ps::aos::Vec3VArg normal, const Ps::aos::Vec3VArg projectionNormal, const Ps::aos::PsTransformV& transf0, const Ps::aos::FloatVArg radius, const Ps::aos::FloatVArg contactOffset);
 
 	//get the average normal in the manifold in world space
 	Ps::aos::Vec3V getWorldNormal(const Ps::aos::PsTransformV& trB);
@@ -844,3 +855,12 @@ PX_INLINE void MultiplePersistentContactManifold::toBuffer(PxU8*  PX_RESTRICT bu
 }//physx
 
 #endif
+
+#ifndef PX_CLANG 
+// @MIXEDREALITY_CHANGE : BEGIN
+#ifdef _MSC_VER
+#pragma warning( default : 4324)
+#endif
+// @MIXEDREALITY_CHANGE : END
+#endif
+

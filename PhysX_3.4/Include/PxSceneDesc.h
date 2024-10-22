@@ -76,6 +76,35 @@ struct PxPruningStructureType
 	};
 };
 
+/**
+\brief Scene query update mode
+
+When PxScene::fetchResults is called it does scene query related work, with this enum it is possible to 
+set what work is done during the fetchResults. 
+
+FetchResults will sync changed bounds during simulation and update the scene query bounds in pruners, this work is mandatory.
+
+eCOMMIT_ENABLED_BUILD_ENABLED does allow to execute the new AABB tree build step during fetchResults, additionally the pruner commit is
+called where any changes are applied. During commit PhysX refits the dynamic scene query tree and if a new tree was built and 
+the build finished the tree is swapped with current AABB tree. 
+
+eCOMMIT_DISABLED_BUILD_ENABLED does allow to execute the new AABB tree build step during fetchResults. Pruner commit is not called,
+this means that refit will then occur during the first scene query following fetchResults, or may be forced by the method PxScene::flushSceneQueryUpdates().
+
+eCOMMIT_DISABLED_BUILD_DISABLED no further scene query work is executed. The scene queries update needs to be called manually, see PxScene::sceneQueriesUpdate.
+It is recommended to call PxScene::sceneQueriesUpdate right after fetchResults as the pruning structures are not updated. 
+
+*/
+struct PxSceneQueryUpdateMode
+{
+	enum Enum
+	{
+		eBUILD_ENABLED_COMMIT_ENABLED,		//!< Both scene query build and commit are executed.
+		eBUILD_ENABLED_COMMIT_DISABLED,		//!< Scene query build only is executed.
+		eBUILD_DISABLED_COMMIT_DISABLED		//!< No work is done, no update of scene queries
+	};
+};
+
 
 /**
 \brief Enum for selecting the friction algorithm used for simulation.
@@ -218,7 +247,7 @@ struct PxSceneFlag
 		
 		\note This flag is not mutable, and must be set in PxSceneDesc at scene creation.
 
-		<b>Default:</b> false
+		<b>Default:</b> true
 		*/
 		eENABLE_PCM	= (1 << 9),
 
@@ -316,6 +345,10 @@ struct PxSceneFlag
 		By default PhysX refits the dynamic scene query tree during fetchResults. Setting this flag during scene
 		creation suppresses this behavior. Refit will then occur during the first scene query following fetchResults,
 		or may be forced by the method PxScene::flushSceneQueryUpdates()
+
+		\note Deprecated, will be replaced with an enum in next releases.
+		\note This flag will be ignored if PxSceneDesc::sceneQueryUpdateMode is set.
+		\note This flag is not used anymore, please use PxSceneQueryUpdateMode::Enum instead
 
 		@see PxScene::flushSceneQueryUpdates()
 
@@ -698,6 +731,15 @@ public:
 	PxU32					dynamicTreeRebuildRateHint;
 
 	/**
+	\brief Defines the scene query update mode.
+
+	\note Setting a value other than the default will result in ignoring the deprecated PxSceneFlag::eSUPPRESS_EAGER_SCENE_QUERY_REFIT
+
+	<b>Default:</b> PxSceneQueryUpdateMode::eBUILD_ENABLED_COMMIT_ENABLED
+	*/
+	PxSceneQueryUpdateMode::Enum sceneQueryUpdateMode;
+
+	/**
 	\brief Will be copied to PxScene::userData.
 
 	<b>Default:</b> NULL
@@ -753,6 +795,24 @@ public:
 	@see nbContactDataBlocks PxScene::setNbContactDataBlocks 
 	*/
 	PxU32					maxNbContactDataBlocks;
+
+	/**
+	\brief The maximum bias coefficient used in the constraint solver
+
+	When geometric errors are found in the constraint solver, either as a result of shapes penetrating
+	or joints becoming separated or violating limits, a bias is introduced in the solver position iterations
+	to correct these errors. This bias is proportional to 1/dt, meaning that the bias becomes increasingly 
+	strong as the time-step passed to PxScene::simulate(...) becomes smaller. This coefficient allows the
+	application to restrict how large the bias coefficient is, to reduce how violent error corrections are.
+	This can improve simulation quality in cases where either variable time-steps or extremely small time-steps
+	are used.
+	
+	<b>Default:</b> PX_MAX_F32
+
+	<b> Range</b> [0, PX_MAX_F32] <br>
+
+	*/
+	PxReal					maxBiasCoefficient;
 
 	/**
 	\brief Size of the contact report stream (in bytes).
@@ -897,6 +957,7 @@ PX_INLINE PxSceneDesc::PxSceneDesc(const PxTolerancesScale& scale):
 	staticStructure						(PxPruningStructureType::eDYNAMIC_AABB_TREE),
 	dynamicStructure					(PxPruningStructureType::eDYNAMIC_AABB_TREE),
 	dynamicTreeRebuildRateHint			(100),
+	sceneQueryUpdateMode				(PxSceneQueryUpdateMode::eBUILD_ENABLED_COMMIT_ENABLED),
 
 	userData							(NULL),
 
@@ -904,14 +965,15 @@ PX_INLINE PxSceneDesc::PxSceneDesc(const PxTolerancesScale& scale):
 
 	nbContactDataBlocks					(0),
 	maxNbContactDataBlocks				(1<<16),
+	maxBiasCoefficient					(PX_MAX_F32),
 	contactReportStreamBufferSize		(8192),
 	ccdMaxPasses						(1),
 	wakeCounterResetValue				(20.0f*0.02f),
 	sanityBounds						(PxBounds3(PxVec3(-PX_MAX_BOUNDS_EXTENTS), PxVec3(PX_MAX_BOUNDS_EXTENTS))),
-#if PX_SUPPORT_GPU_PHYSX
+
 	gpuMaxNumPartitions					(8),
 	gpuComputeVersion					(0),
-#endif
+
 	tolerancesScale						(scale)
 {
 }
@@ -965,13 +1027,11 @@ PX_INLINE bool PxSceneDesc::isValid() const
 	if(!sanityBounds.isValid())
 		return false;
 
-#if PX_SUPPORT_GPU_PHYSX
 	//gpuMaxNumPartitions must be power of 2
 	if((gpuMaxNumPartitions&(gpuMaxNumPartitions - 1)) != 0)
 		return false;
 	if (gpuMaxNumPartitions > 32)
 		return false;
-#endif
 
 	return true;
 }

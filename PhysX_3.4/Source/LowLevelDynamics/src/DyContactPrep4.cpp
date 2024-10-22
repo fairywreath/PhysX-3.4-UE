@@ -96,16 +96,16 @@ static void setupFinalizeSolverConstraints4(PxSolverContactDesc* PX_RESTRICT des
 						PxU8(descs[2].hasForceThresholds ? SolverContactHeader::eHAS_FORCE_THRESHOLDS : 0),
 						PxU8(descs[3].hasForceThresholds ? SolverContactHeader::eHAS_FORCE_THRESHOLDS : 0) };
 
-	bool hasMaxImpulse = descs[0].hasMaxImpulse || descs[1].hasMaxImpulse || descs[2].hasMaxImpulse || descs[3].hasMaxImpulse;
-
 	//The block is dynamic if **any** of the constraints have a non-static body B. This allows us to batch static and non-static constraints but we only get a memory/perf
 	//saving if all 4 are static. This simplifies the constraint partitioning such that it only needs to care about separating contacts and 1D constraints (which it already does)
 	bool isDynamic = false;
 	bool hasKinematic = false;
+	PxReal maxImpulse[4];
 	for(PxU32 a = 0; a < 4; ++a)
 	{
 		isDynamic = isDynamic || (descs[a].bodyState1 == PxSolverContactDesc::eDYNAMIC_BODY);
 		hasKinematic = hasKinematic || descs[a].bodyState1 == PxSolverContactDesc::eKINEMATIC_BODY;
+		maxImpulse[a] = PxMin(descs[a].data0->maxContactImpulse, descs[a].data1->maxContactImpulse);
 	}
 	
 	const PxU32 constraintSize = isDynamic ? sizeof(SolverContactBatchPointDynamic4) : sizeof(SolverContactBatchPointBase4);
@@ -294,8 +294,6 @@ static void setupFinalizeSolverConstraints4(PxSolverContactDesc* PX_RESTRICT des
 	PxU32 patch0 = 0, patch1 = 0, patch2 = 0, patch3 = 0;
 
 	PxU8 flag = 0;
-	if(hasMaxImpulse)
-		flag |= SolverContactHeader4::eHAS_MAX_IMPULSE;
 
 	for(PxU32 i=0;i<maxPatches;i++)
 	{
@@ -360,8 +358,6 @@ static void setupFinalizeSolverConstraints4(PxSolverContactDesc* PX_RESTRICT des
 		header->shapeInteraction[0] = descs[0].shapeInteraction; header->shapeInteraction[1] = descs[1].shapeInteraction; 
 		header->shapeInteraction[2] = descs[2].shapeInteraction; header->shapeInteraction[3] = descs[3].shapeInteraction;
 
-		Vec4V* maxImpulse = reinterpret_cast<Vec4V*>(ptr + constraintSize * totalContacts);
-
 		header->restitution = restitution;
 
 		Vec4V normal0 = V4LoadA(&contactBase0->normal.x);
@@ -418,9 +414,13 @@ static void setupFinalizeSolverConstraints4(PxSolverContactDesc* PX_RESTRICT des
 			((PxU32(hasFinished2 || !iter2.hasNextContact())) << 2) | 
 			((PxU32(hasFinished3 || !iter3.hasNextContact())) << 3);
 
+
+		PxReal patchMaxImpulse[4] = { maxImpulse[0], maxImpulse[1], maxImpulse[2], maxImpulse[3] };
+
+
 		while(finished != 0xf)
 		{
-			finished = newFinished;
+			
 			++contactCount;
 			Ps::prefetchLine(p, 384);
 			Ps::prefetchLine(p, 512);
@@ -441,6 +441,21 @@ static void setupFinalizeSolverConstraints4(PxSolverContactDesc* PX_RESTRICT des
 				Vec4V point1 = V4LoadA(&con1.point.x);
 				Vec4V point2 = V4LoadA(&con2.point.x);
 				Vec4V point3 = V4LoadA(&con3.point.x);
+
+				if (descs[0].hasMaxImpulse)
+					patchMaxImpulse[0] = descs[0].contacts[c.contactPatches[patch0].start + contact0].maxImpulse;
+				if (descs[1].hasMaxImpulse)
+					patchMaxImpulse[1] = descs[1].contacts[c.contactPatches[patch1].start + contact1].maxImpulse;
+				if (descs[2].hasMaxImpulse)
+					patchMaxImpulse[2] = descs[2].contacts[c.contactPatches[patch2].start + contact2].maxImpulse;
+				if (descs[3].hasMaxImpulse)
+					patchMaxImpulse[3] = descs[3].contacts[c.contactPatches[patch3].start + contact3].maxImpulse;
+				for (PxU32 a = 0; a < 4; ++a)
+				{
+					if ((finished & (1 << a)))
+						patchMaxImpulse[a] = 0.f;
+				}
+				
 
 				Vec4V pointX, pointY, pointZ;
 				PX_TRANSPOSE_44_34(point0, point1, point2, point3, pointX, pointY, pointZ);
@@ -586,16 +601,14 @@ static void setupFinalizeSolverConstraints4(PxSolverContactDesc* PX_RESTRICT des
 				solverContact->raXnZ = delAngVel0Z;
 				solverContact->velMultiplier = velMultiplier;
 				solverContact->biasedErr = biasedErr;
+				solverContact->maxContactImpulse = V4LoadU(patchMaxImpulse);
 
 				//solverContact->scaledBias = V4Max(zero, scaledBias);
 				solverContact->scaledBias = V4Sel(isGreater2, scaledBias, V4Max(zero, scaledBias));
-
-				if(hasMaxImpulse)
-				{
-					maxImpulse[contactCount-1] = V4Merge(FLoad(con0.maxImpulse), FLoad(con1.maxImpulse), FLoad(con2.maxImpulse),
-						FLoad(con3.maxImpulse));					
-				}
 			}
+
+			finished = newFinished;
+
 			if(!(finished & 0x1))
 			{
 				iter0.nextContact(patch0, contact0);
@@ -621,10 +634,6 @@ static void setupFinalizeSolverConstraints4(PxSolverContactDesc* PX_RESTRICT des
 			}
 		}
 		ptr = p;
-		if(hasMaxImpulse)
-		{
-			ptr += sizeof(Vec4V) * totalContacts;
-		}
 
 		//OK...friction time :-)
 
@@ -1101,12 +1110,10 @@ void computeBlockStreamByteSizes4(PxSolverContactDesc* descs,
 	PxU32 maxFrictionCount[CorrelationBuffer::MAX_FRICTION_PATCHES];
 	PxMemZero(maxContactCount, sizeof(maxContactCount));
 	PxMemZero(maxFrictionCount, sizeof(maxFrictionCount));
-	bool hasMaxImpulse = false;
 
 	for(PxU32 a = 0; a < 4; ++a)
 	{
 		PxU32 axisConstraintCount = 0;
-		hasMaxImpulse = hasMaxImpulse || descs[a].hasMaxImpulse;
 		for(PxU32 i = 0; i < descs[a].numFrictionPatches; i++)
 		{
 			PxU32 ind = i + descs[a].startFrictionPatchIndex;
@@ -1168,8 +1175,6 @@ void computeBlockStreamByteSizes4(PxSolverContactDesc* descs,
 	constraintSize += sizeof(Vec4V)*(totalContacts+totalFriction);
 
 	//If we have max impulse, reserve a buffer for it
-	if(hasMaxImpulse)
-		constraintSize += sizeof(Ps::aos::Vec4V) * totalContacts;
 
 	_solverConstraintByteSize =  ((constraintSize + headerSize + 0x0f) & ~0x0f);
 	PX_ASSERT(0 == (_solverConstraintByteSize & 0x0f));

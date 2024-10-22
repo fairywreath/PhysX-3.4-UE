@@ -32,14 +32,14 @@
 
 #include "foundation/PxPreprocessor.h"
 
-#if PX_WINDOWS_FAMILY
+#if PX_WINDOWS_FAMILY || PX_HOLOLENS
 #include "foundation/windows/PxWindowsIntrinsics.h"
 #elif(PX_LINUX || PX_ANDROID || PX_APPLE_FAMILY || PX_PS4)
 #include "foundation/unix/PxUnixIntrinsics.h"
 #elif PX_XBOXONE
-#include "foundation/XboxOne/PxXboxOneIntrinsics.h"
-#elif PX_NX
-#include "foundation/nx/PxNXIntrinsics.h"
+#include "foundation/PxXboxIntrinsics.h" //@epic: change path
+#elif PX_SWITCH
+#include "foundation/switch/PxSwitchIntrinsics.h"
 #else
 #error "Platform not supported!"
 #endif

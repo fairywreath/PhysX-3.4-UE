@@ -281,7 +281,7 @@ void ThreadImpl::yield()
 }
 
 #if PX_PS4
-uint32_t setAffinityMaskPS4(pthread_t, uint32_t);
+uint32_t setAffinityMaskSony(pthread_t, uint32_t);
 #endif
 
 uint32_t ThreadImpl::setAffinityMask(uint32_t mask)
@@ -297,7 +297,7 @@ uint32_t ThreadImpl::setAffinityMask(uint32_t mask)
 	if(getThread(this)->state == _PxThreadStarted)
 	{
 #if PX_PS4
-		prevMask = setAffinityMaskPS4(getThread(this)->thread, mask);
+		prevMask = setAffinityMaskSony(getThread(this)->thread, mask);
 #elif PX_EMSCRIPTEN
 		// not supported
 #elif !PX_APPLE_FAMILY // Apple doesn't support syscall with getaffinity and setaffinity
@@ -453,9 +453,21 @@ void* TlsGet(uint32_t index)
 	return reinterpret_cast<void*>(pthread_getspecific(pthread_key_t(index)));
 }
 
+size_t TlsGetValue(uint32_t index)
+{
+	return reinterpret_cast<size_t>(pthread_getspecific(pthread_key_t(index)));
+}
+
 uint32_t TlsSet(uint32_t index, void* value)
 {
 	int status = pthread_setspecific(pthread_key_t(index), value);
+	PX_ASSERT(!status);
+	return !status;
+}
+
+uint32_t TlsSetValue(uint32_t index, size_t value)
+{
+	int status = pthread_setspecific(pthread_key_t(index), reinterpret_cast<void*>(value));
 	PX_ASSERT(!status);
 	return !status;
 }

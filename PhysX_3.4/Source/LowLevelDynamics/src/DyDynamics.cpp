@@ -102,13 +102,14 @@ struct SolverIslandObjects
 
 Context* createDynamicsContext(	PxcNpMemBlockPool* memBlockPool,
 								PxcScratchAllocator& scratchAllocator, Cm::FlushPool& taskPool,
-								PxvSimStats& simStats, PxTaskManager* taskManager, Ps::VirtualAllocatorCallback* allocatorCallback, PxsMaterialManager* materialManager,
-								IG::IslandSim* accurateIslandSim, PxU64 contextID,
-								const bool enableStabilization, const bool useEnhancedDeterminism, const bool useAdaptiveForce
+								PxvSimStats& simStats, PxTaskManager* taskManager, Ps::VirtualAllocatorCallback* allocatorCallback, 
+								PxsMaterialManager* materialManager, IG::IslandSim* accurateIslandSim, PxU64 contextID,
+								const bool enableStabilization, const bool useEnhancedDeterminism, const bool useAdaptiveForce,
+								const PxReal maxBiasCoefficient
 								)
 {
 	return DynamicsContext::create(	memBlockPool, scratchAllocator, taskPool, simStats, taskManager, allocatorCallback, materialManager, accurateIslandSim,
-									contextID, enableStabilization, useEnhancedDeterminism, useAdaptiveForce);
+									contextID, enableStabilization, useEnhancedDeterminism, useAdaptiveForce, maxBiasCoefficient);
 }
 
 // PT: TODO: consider removing this function. We already have "createDynamicsContext".
@@ -123,14 +124,16 @@ DynamicsContext* DynamicsContext::create(	PxcNpMemBlockPool* memBlockPool,
 											PxU64 contextID,
 											const bool enableStabilization,
 											const bool useEnhancedDeterminism,
-											const bool useAdaptiveForce
+											const bool useAdaptiveForce,
+											const PxReal maxBiasCoefficient
 											)
 {
 	// PT: TODO: inherit from UserAllocated, remove placement new
 	DynamicsContext* dc = reinterpret_cast<DynamicsContext*>(PX_ALLOC(sizeof(DynamicsContext), "DynamicsContext"));
 	if(dc)
 	{
-		new(dc)DynamicsContext(memBlockPool, scratchAllocator, taskPool, simStats, taskManager, allocatorCallback, materialManager, accurateIslandSim, contextID, enableStabilization, useEnhancedDeterminism, useAdaptiveForce);
+		new(dc)DynamicsContext(memBlockPool, scratchAllocator, taskPool, simStats, taskManager, allocatorCallback, materialManager, accurateIslandSim, contextID, 
+			enableStabilization, useEnhancedDeterminism, useAdaptiveForce, maxBiasCoefficient);
 	}
 	return dc;
 }
@@ -169,9 +172,10 @@ DynamicsContext::DynamicsContext(	PxcNpMemBlockPool* memBlockPool,
 									PxU64 contextID,
 									const bool enableStabilization,
 									const bool useEnhancedDeterminism,
-									const bool useAdaptiveForce
+									const bool useAdaptiveForce,
+									const PxReal maxBiasCoefficient
 									) : 
-	Dy::Context			(accurateIslandSim, allocatorCallback, simStats, enableStabilization, useEnhancedDeterminism, useAdaptiveForce),
+	Dy::Context			(accurateIslandSim, allocatorCallback, simStats, enableStabilization, useEnhancedDeterminism, useAdaptiveForce, maxBiasCoefficient),
 	mThreadContextPool	(memBlockPool),
 	mMaterialManager	(materialManager),
 	mScratchAllocator	(scratchAllocator),
@@ -265,8 +269,8 @@ void DynamicsContext::setDescFromIndices(PxSolverConstraintDesc& desc, const Pxs
 
 		desc.bodyA = constraint.indexType0 == PxsIndexedInteraction::eWORLD ? &mWorldSolverBody
 																			: &mSolverBodyPool[PxU32(constraint.solverBody0) + offsetMap[constraint.indexType0]];
-		desc.bodyADataIndex = PxU16(constraint.indexType0 == PxsIndexedInteraction::eWORLD ? 0
-																			: PxU16(constraint.solverBody0) + 1 + offsetMap[constraint.indexType0]);
+		desc.bodyADataIndex = constraint.indexType0 == PxsIndexedInteraction::eWORLD ? 0
+																			: PxU32(constraint.solverBody0) + 1 + offsetMap[constraint.indexType0];
 	}
 
 	if(constraint.indexType1 == PxsIndexedInteraction::eARTICULATION)
@@ -283,8 +287,8 @@ void DynamicsContext::setDescFromIndices(PxSolverConstraintDesc& desc, const Pxs
 		//desc.articulationBLength = 0; //this is unioned with bodyBDataIndex
 		desc.bodyB = constraint.indexType1 == PxsIndexedInteraction::eWORLD ? &mWorldSolverBody
 																			: &mSolverBodyPool[PxU32(constraint.solverBody1) + offsetMap[constraint.indexType1]];
-		desc.bodyBDataIndex = PxU16(constraint.indexType1 == PxsIndexedInteraction::eWORLD ? 0
-																			: PxU16(constraint.solverBody1) + 1 + offsetMap[constraint.indexType1]);
+		desc.bodyBDataIndex = constraint.indexType1 == PxsIndexedInteraction::eWORLD ? 0
+																			: PxU32(constraint.solverBody1) + 1 + offsetMap[constraint.indexType1];
 	}
 }
 
@@ -358,19 +362,20 @@ class PxsPreIntegrateTask : public Cm::Task
 {
 	PxsPreIntegrateTask& operator=(const PxsPreIntegrateTask&);
 public:
-	PxsPreIntegrateTask(	DynamicsContext&		context,
-							PxsBodyCore*const*		bodyArray,
-							PxsRigidBody*const*		originalBodyArray,
-							PxU32 const*				nodeIndexArray,
-							PxSolverBody*					solverBodies,
-							PxSolverBodyData*				solverBodyDataPool,
-							PxF32						dt,
-							PxU32						numBodies,
-							volatile PxU32*				maxSolverPositionIterations,
-							volatile PxU32*				maxSolverVelocityIterations,
-							const PxU32					startIndex,
-							const PxU32					numToIntegrate,
-							const PxVec3&				gravity) :
+	PxsPreIntegrateTask(	DynamicsContext&	context,
+							PxsBodyCore*const*	bodyArray,
+							PxsRigidBody*const*	originalBodyArray,
+							PxU32 const*		nodeIndexArray,
+							PxSolverBody*		solverBodies,
+							PxSolverBodyData*	solverBodyDataPool,
+							PxF32				dt,
+							PxU32				numBodies,
+							volatile PxU32*		maxSolverPositionIterations,
+							volatile PxU32*		maxSolverVelocityIterations,
+							const PxU32			startIndex,
+							const PxU32			numToIntegrate,
+							const PxVec3&		gravity) :
+		Cm::Task(context.getContextId()),
 		mContext(context),
 		mBodyArray(bodyArray),
 		mOriginalBodyArray(originalBodyArray),
@@ -418,7 +423,7 @@ class PxsParallelSolverTask : public Cm::Task
 public:
 
 	PxsParallelSolverTask(SolverIslandParams& params, DynamicsContext& context, PxFrictionType::Enum frictionType, IG::IslandSim& islandSim)
-		: mParams(params), mContext(context), mFrictionType(frictionType), mIslandSim(islandSim)
+		: Cm::Task(context.getContextId()), mParams(params), mContext(context), mFrictionType(frictionType), mIslandSim(islandSim)
 	{
 	}
 
@@ -454,6 +459,7 @@ public:
 		PxU32 stride,
 		PxsMaterialManager* materialManager,
 		PxsContactManagerOutputIterator& iterator) :
+		Cm::Task(context.getContextId()),
 		mContext(context), 
 		mThreadContext(threadContext),
 		mObjects(objects),
@@ -605,7 +611,7 @@ class PxsForceThresholdTask  : public Cm::Task
 	PxsForceThresholdTask& operator=(const PxsForceThresholdTask&);
 public:
 
-	PxsForceThresholdTask(DynamicsContext& context): mDynamicsContext(context) 
+	PxsForceThresholdTask(DynamicsContext& context) : Cm::Task(context.getContextId()), mDynamicsContext(context) 
 	{
 	}
 
@@ -747,7 +753,7 @@ public:
 
 	SolverArticulationUpdateTask(ThreadContext& islandThreadContext, Articulation** articulations, ArticulationSolverDesc* articulationDescArray, PxU32 nbToProcess, Dy::DynamicsContext& context,
 		PxU32 startIdx):
-		mIslandThreadContext(islandThreadContext), mArticulations(articulations), mArticulationDescArray(articulationDescArray), mNbToProcess(nbToProcess), mContext(context), mStartIdx(startIdx)
+		Cm::Task(context.getContextId()), mIslandThreadContext(islandThreadContext), mArticulations(articulations), mArticulationDescArray(articulationDescArray), mNbToProcess(nbToProcess), mContext(context), mStartIdx(startIdx)
 	{
 	}
 
@@ -826,6 +832,7 @@ public:
 		PxsContactManagerOutputIterator& iterator,
 		bool enhancedDeterminism
 		) :
+		Cm::Task				(context.getContextId()),
 		mContext				(context), 
 		mIslandContext			(islandContext),
 		mObjects				(objects),
@@ -888,32 +895,45 @@ public:
 			const IG::IslandSim& islandSim = mIslandManager.getAccurateIslandSim();
 
 			PxU32 bodyIndex = 0, articIndex = 0;
-			for(PxU32 i = 0; i < nbIslands; ++i)
+			for (PxU32 i = 0; i < nbIslands; ++i)
 			{
 				const IG::Island& island = islandSim.getIsland(islandIds[i]);
 
 				IG::NodeIndex currentIndex = island.mRootNode;
 
-				while(currentIndex.isValid())
+				while (currentIndex.isValid())
 				{
 					const IG::Node& node = islandSim.getNode(currentIndex);
 
-					if(node.getNodeType() == IG::Node::eARTICULATION_TYPE)
+					if (node.getNodeType() == IG::Node::eARTICULATION_TYPE)
 					{
 						articulationPtr[articIndex++] = node.getArticulation();
 					}
 					else
 					{
-						PxsRigidBody* rigid = node.getRigidBody();
 						PX_ASSERT(bodyIndex < (mIslandContext.mCounts.bodies + mContext.mKinematicCount + 1));
-						rigidBodyPtr[bodyIndex] = rigid;
-						bodyArrayPtr[bodyIndex] = &rigid->getCore();
-						nodeIndexArray[bodyIndex] = currentIndex.index();
-						bodyRemapTable[islandSim.getActiveNodeIndex(currentIndex)] = bodyIndex++;
+						nodeIndexArray[bodyIndex++] = currentIndex.index();
 					}
 
 					currentIndex = node.mNextNode;
 				}
+			}
+
+			//Bodies can come in a slightly jumbled order from islandGen. It's deterministic if the scene is 
+			//identical but can vary if there are additional bodies in the scene in a different island.
+			if (mEnhancedDeterminism)
+			{
+				Ps::sort(nodeIndexArray, bodyIndex);
+			}
+
+			for (PxU32 a = 0; a < bodyIndex; ++a)
+			{
+				IG::NodeIndex currentIndex(nodeIndexArray[a]);
+				const IG::Node& node = islandSim.getNode(currentIndex);
+				PxsRigidBody* rigid = node.getRigidBody();
+				rigidBodyPtr[a] = rigid;
+				bodyArrayPtr[a] = &rigid->getCore();
+				bodyRemapTable[islandSim.getActiveNodeIndex(currentIndex)] = a;
 			}
 
 
@@ -1376,6 +1396,7 @@ public:
 		IslandContext& islandContext,
 		const SolverIslandObjects& objects,				  
 		const PxU32 solverBodyOffset, bool enhancedDeterminism) :
+		Cm::Task(context.getContextId()),
 		mContext(context), 
 		mIslandContext(islandContext),
 		mObjects(objects),
@@ -1479,6 +1500,7 @@ public:
 		const SolverIslandObjects& objects,				  
 		const PxU32 solverBodyOffset,
 		IG::IslandSim& islandSim) :
+		Cm::Task(context.getContextId()),
 		mContext(context), 
 		mIslandContext(islandContext),
 		mObjects(objects),
@@ -1871,6 +1893,7 @@ public:
 		const SolverIslandObjects& objects,				  
 		const PxU32 solverBodyOffset,
 		PxsContactManagerOutputIterator& cmOutputs) :
+		Cm::Task			(context.getContextId()),
 		mContext			(context), 
 		mIslandContext		(islandContext),
 		mObjects			(objects),
@@ -1974,6 +1997,7 @@ public:
 		PxU32 solverDataOffset,
 		PxsContactManagerOutputIterator& outputs,
 		bool enhancedDeterminism) : 
+		Cm::Task				(context.getContextId()),
 		mContext				(context),
 		mIslandContext			(islandContext),
 		mSolverDataOffset		(solverDataOffset),
@@ -2603,7 +2627,7 @@ static PxU32 createFinalizeContacts_Parallel(PxSolverBodyData* solverBodyData, T
 	const PxReal bounceThreshold = context.getBounceThreshold();
 	const PxReal frictionOffsetThreshold = context.getFrictionOffsetThreshold();
 	const PxReal dt = context.getDt();
-	const PxReal invDt = context.getInvDt();
+	const PxReal invDt = PxMin(context.getMaxBiasCoefficient(), context.getInvDt());
 
 	PxSolverConstraintDesc* contactDescPtr = mThreadContext.orderedContactConstraints;
 
@@ -2803,6 +2827,7 @@ class PxsCreateFinalizeContactsTask : public Cm::Task
 public:
 	PxsCreateFinalizeContactsTask( const PxU32 numConstraints, PxSolverConstraintDesc* descArray, PxSolverBodyData* solverBodyData,
 		ThreadContext& threadContext, DynamicsContext& context, PxU32 startIndex, PxU32 endIndex, PxsContactManagerOutputIterator& outputs) :
+			Cm::Task(context.getContextId()),
 			mNumConstraints(numConstraints), mDescArray(descArray), mSolverBodyData(solverBodyData),
 			mThreadContext(threadContext), mDynamicsContext(context),
 			mOutputs(outputs),

@@ -49,6 +49,11 @@
 using namespace physx;
 using namespace Gu;
 
+namespace PhysxMTDHacks
+{
+	const float Epsilon = 1e-7f;
+}
+
 static PX_FORCE_INLINE void getScaledTriangle(const PxTriangleMeshGeometry& triGeom, const Cm::Matrix34& vertex2worldSkew, bool flipsNormal, PxTriangle& triangle, PxTriangleID triangleIndex)
 {
 	TriangleMesh* tm = static_cast<TriangleMesh*>(triGeom.triangleMesh);
@@ -297,9 +302,13 @@ bool physx::Gu::computeCapsule_TriangleMeshMTD(	const PxTriangleMeshGeometry& tr
 		}
 	}
 
-	normal = V3Normalize(translation);
-	distV = FNeg(V3Length(translation));
+	const FloatV translationF = V3Length(translation);
+	distV = FNeg(translationF);
+
+	const BoolV con = FIsGrtr(translationF, FZero());
+	normal = V3Sel(con, V3ScaleInv(translation, translationF), zeroV);
 	
+
 	if(foundInitial)
 	{
 		FStore(distV, &hit.distance);
@@ -409,8 +418,12 @@ bool physx::Gu::computeCapsule_HeightFieldMTD(const PxHeightFieldGeometry& heigh
 		}
 	}
 
-	normal = V3Normalize(translation);
-	distV = FNeg(V3Length(translation));
+	const FloatV translationF = V3Length(translation);
+	distV = FNeg(translationF);
+
+	const BoolV con = FIsGrtr(translationF, FZero());
+	normal = V3Sel(con, V3ScaleInv(translation, translationF), zeroV);
+
 	if(foundInitial)
 	{
 		FStore(distV, &hit.distance);
@@ -481,7 +494,7 @@ bool physx::Gu::computeBox_TriangleMeshMTD(const PxTriangleMeshGeometry& triMesh
 	const Vec3V p0 = V3LoadU(&boxTransform.p.x);
 
 	const Vec3V boxExtents = V3LoadU(box.extents);
-	const FloatV minMargin = CalculatePCMBoxMargin(boxExtents);
+	const FloatV minMargin = CalculateMTDBoxMargin(boxExtents);
 	const FloatV inflationV = FAdd(FLoad(inflation), minMargin);
 	PxReal boundInflation;
 	FStore(inflationV, &boundInflation);
@@ -580,8 +593,12 @@ bool physx::Gu::computeBox_TriangleMeshMTD(const PxTriangleMeshGeometry& triMesh
 		}
 	}
 
-	worldNormal = V3Normalize(translation);
-	distV = FNeg(V3Length(translation));
+	const FloatV translationF = V3Length(translation);
+	distV = FNeg(translationF);
+
+	const BoolV con = FIsGrtr(translationF, FZero());
+	worldNormal = V3Sel(con, V3ScaleInv(translation, translationF), zeroV);
+
 	if(foundInitial)
 	{
 		//transform closestA to world space
@@ -620,7 +637,7 @@ bool physx::Gu::computeBox_HeightFieldMTD(	const PxHeightFieldGeometry& heightFi
 	const Vec3V p0 = V3LoadU(&boxTransform.p.x);
 
 	const Vec3V boxExtents = V3LoadU(box.extents);
-	const FloatV minMargin = CalculatePCMBoxMargin(boxExtents);
+	const FloatV minMargin = CalculateMTDBoxMargin(boxExtents);
 	const FloatV inflationV = FAdd(FLoad(inflation), minMargin);
 	//const FloatV inflationV = FLoad(inflation);
 
@@ -722,8 +739,12 @@ bool physx::Gu::computeBox_HeightFieldMTD(	const PxHeightFieldGeometry& heightFi
 		}
 	}
 
-	worldNormal = V3Normalize(translation);
-	distV = FNeg(V3Length(translation));
+
+	const FloatV translationF = V3Length(translation);
+	distV = FNeg(translationF);
+
+	const BoolV con = FIsGrtr(translationF, FZero());
+	worldNormal = V3Sel(con, V3ScaleInv(translation, translationF), zeroV);
 	
 	if(foundInitial)
 	{
@@ -774,7 +795,7 @@ bool physx::Gu::computeConvex_TriangleMeshMTD(	const PxTriangleMeshGeometry& tri
 	ConvexHullV convexHull(hullData, V3Zero(), vScale, vQuat, idtScaleConvex);
 	PX_ALIGN(16, PxU8 convexBuff[sizeof(SupportLocalImpl<ConvexHullV>)]);
 	
-	const FloatV convexMargin = CalculatePCMConvexMargin(hullData, vScale);
+	const FloatV convexMargin = CalculateMTDConvexMargin(hullData, vScale);
 	const FloatV inflationV = FAdd(FLoad(inflation), convexMargin);
 	PxReal boundInflation;
 	FStore(inflationV, &boundInflation);
@@ -881,8 +902,13 @@ bool physx::Gu::computeConvex_TriangleMeshMTD(	const PxTriangleMeshGeometry& tri
 		}
 	}
 
-	worldNormal = V3Normalize(translation);
-	distV = FNeg(V3Length(translation));
+	
+	const FloatV translationF = V3Length(translation);
+	distV = FNeg(translationF);
+
+	const BoolV con = FIsGrtr(translationF, FZero());
+	worldNormal = V3Sel(con, V3ScaleInv(translation, translationF), zeroV);
+
 	if(foundInitial)
 	{
 		//transform closestA to world space
@@ -930,7 +956,7 @@ bool physx::Gu::computeConvex_HeightFieldMTD(	const PxHeightFieldGeometry& heigh
 	ConvexHullV convexHull(hullData, zeroV, vScale, vQuat, idtScaleConvex);
 	PX_ALIGN(16, PxU8 convexBuff[sizeof(SupportLocalImpl<ConvexHullV>)]);
 
-	const FloatV convexMargin = CalculatePCMConvexMargin(hullData, vScale);
+	const FloatV convexMargin = CalculateMTDConvexMargin(hullData, vScale);
 	const FloatV inflationV = FAdd(FLoad(inflation), convexMargin);
 	PxReal boundInflation;
 	FStore(inflationV, &boundInflation);
@@ -1041,8 +1067,13 @@ bool physx::Gu::computeConvex_HeightFieldMTD(	const PxHeightFieldGeometry& heigh
 		}
 	}
 
-	worldNormal = V3Normalize(translation);
-	distV = FNeg(V3Length(translation));
+
+	const FloatV translationF = V3Length(translation);
+	distV = FNeg(translationF);
+
+	const BoolV con = FIsGrtr(translationF, FZero());
+	worldNormal = V3Sel(con, V3ScaleInv(translation, translationF), zeroV);
+
 	if(foundInitial)
 	{
 		//transform closestA to world space
@@ -1062,7 +1093,14 @@ bool physx::Gu::computeSphere_SphereMTD(const Sphere& sphere0, const Sphere& sph
 	const PxReal radiusSum = sphere0.radius + sphere1.radius;
 
 	const PxReal d = PxSqrt(d2);
-	hit.normal = delta / d;
+	if (d > PhysxMTDHacks::Epsilon)
+	{
+		hit.normal = delta / d;
+	}
+	else
+	{
+		hit.normal = PxVec3(0.f, 0.f, 1.f);
+	}
 	hit.distance = d - radiusSum ;
 	hit.position = sphere0.center + hit.normal * sphere0.radius;
 	return true;
@@ -1080,7 +1118,14 @@ bool physx::Gu::computeSphere_CapsuleMTD( const Sphere& sphere, const Capsule& c
 	
 	const PxReal lenSq = normal.magnitudeSquared();
 	const PxF32 d = PxSqrt(lenSq);
-	hit.normal = normal / d;
+	if (d > PhysxMTDHacks::Epsilon)
+	{
+		hit.normal = normal / d;
+	}
+	else
+	{
+		hit.normal = PxVec3(0.f, 0.f, 1.f);
+	}
 	hit.distance = d - radiusSum;
 	hit.position = sphere.center + hit.normal * sphere.radius;
 	return true;
@@ -1102,7 +1147,14 @@ bool physx::Gu::computeCapsule_CapsuleMTD(const Capsule& capsule0, const Capsule
 	const PxVec3 normal = pointAtCapsule0 - pointAtCapsule1;
 	const PxReal lenSq = normal.magnitudeSquared();
 	const PxF32 len = PxSqrt(lenSq);
-	hit.normal = normal / len;
+	if (len > PhysxMTDHacks::Epsilon)
+	{
+		hit.normal = normal / len;
+	}
+	else
+	{
+		hit.normal = PxVec3(0.f, 0.f, 1.f);
+	}
 	hit.distance = len - radiusSum;
 	hit.position = pointAtCapsule1 + hit.normal * capsule1.radius;
 	return true;

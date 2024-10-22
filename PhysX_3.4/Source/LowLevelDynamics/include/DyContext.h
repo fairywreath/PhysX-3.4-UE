@@ -33,7 +33,6 @@
 #include "CmPhysXCommon.h"
 #include "PxSceneDesc.h"
 #include "DyThresholdTable.h"
-#include "DyGpuAPI.h"
 #include "PxcNpThreadContext.h"
 #include "PxsSimulationController.h"
 #include "DyConstraintWriteBack.h"
@@ -193,6 +192,8 @@ public:
 	*/
 	PX_FORCE_INLINE PxReal					getInvDt()						const	{ return mInvDt;			}
 
+	PX_FORCE_INLINE PxReal					getMaxBiasCoefficient()			const { return mMaxBiasCoefficient; }
+
 	PX_FORCE_INLINE PxVec3					getGravity()					const	{ return mGravity;			}
 
 
@@ -242,15 +243,18 @@ public:
 protected:
 
 	Context(IG::IslandSim*	accurateIslandSim, Ps::VirtualAllocatorCallback* allocatorCallback,
-		PxvSimStats& simStats, bool enableStabilization, bool useEnhancedDeterminism, bool useAdaptiveForce) :
+		PxvSimStats& simStats, bool enableStabilization, bool useEnhancedDeterminism, bool useAdaptiveForce,
+		const PxReal maxBiasCoefficient) :
 		mThresholdStream(NULL),
 		mForceChangedThresholdStream(NULL),		
 		mAccurateIslandSim(accurateIslandSim), 		
 		mDt							(1.0f), 
 		mInvDt						(1.0f),
+		mMaxBiasCoefficient			(maxBiasCoefficient),
 		mEnableStabilization		(enableStabilization),
 		mUseEnhancedDeterminism		(useEnhancedDeterminism),
 		mUseAdaptiveForce			(useAdaptiveForce),
+
 		mBounceThreshold(-2.0f),
 		mSolverBatchSize(32),
 		mConstraintWriteBackPool(Ps::VirtualAllocator(allocatorCallback)),
@@ -288,6 +292,8 @@ protected:
 	\brief 1/time-step.
 	*/
 	PxReal						mInvDt;
+
+	PxReal						mMaxBiasCoefficient;
 
 	const bool					mEnableStabilization;
 
@@ -359,7 +365,7 @@ Context* createDynamicsContext(	PxcNpMemBlockPool* memBlockPool,
 								PxcScratchAllocator& scratchAllocator, Cm::FlushPool& taskPool,
 								PxvSimStats& simStats, PxTaskManager* taskManager, Ps::VirtualAllocatorCallback* allocatorCallback, PxsMaterialManager* materialManager,
 								IG::IslandSim* accurateIslandSim, PxU64 contextID,
-								const bool enableStabilization, const bool useEnhancedDeterminism, const bool useAdaptiveForce 
+								const bool enableStabilization, const bool useEnhancedDeterminism, const bool useAdaptiveForce, const PxReal maxBiasCoefficient
 								);
 
 }

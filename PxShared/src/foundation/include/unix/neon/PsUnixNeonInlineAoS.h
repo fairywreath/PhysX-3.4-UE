@@ -42,7 +42,7 @@
 
 // "exact"
 #define VRECIPQ recipq_newton<4>
-#if PX_NX
+#if PX_SWITCH
 // StabilizationTests.AveragePoint needs more precision to succeed.
 #define VRECIP recip_newton<5> 
 #else
@@ -2253,6 +2253,7 @@ PX_FORCE_INLINE FloatV V4Dot3(const Vec4V aa, const Vec4V bb)
 PX_FORCE_INLINE Vec4V V4Cross(const Vec4V a, const Vec4V b)
 {
 	const uint32x2_t TF = { 0xffffFFFF, 0x0 };
+
 	const float32x2_t ay_ax = vget_low_f32(a);  // d2
 	const float32x2_t aw_az = vget_high_f32(a); // d3
 	const float32x2_t by_bx = vget_low_f32(b);  // d4
